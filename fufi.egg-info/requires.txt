@@ -1,0 +1,9 @@
+click
+numpy
+pandas
+pysam
+quicksect
+pybedtools
+natsort
+networkx
+scikit-learn
