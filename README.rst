@@ -1,4 +1,4 @@
-fufi_
+fufi
 
 fufi is a structural variant detection tool that specialises
 in identifying rearrangements involving telomere fusions.
