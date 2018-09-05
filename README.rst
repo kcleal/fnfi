@@ -1,5 +1,5 @@
 ====================
-fufi - Fusion finder
+Fusion finder - fufi
 ====================
 
 fufi is a structural variant detection tool that specialises
