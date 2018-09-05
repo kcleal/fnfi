@@ -16,3 +16,4 @@ align/align_path_c.c
 align/align_path_c.cpp
 build/
 dist/
+.gitignore
