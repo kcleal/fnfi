@@ -1,11 +1,25 @@
-fufi
+====================
+fufi - Fusion finder
+====================
 
 fufi is a structural variant detection tool that specialises
 in identifying rearrangements involving telomere fusions.
 
+Installation
+------------
+Currently install using::
 
-Example Usage:
+    $ python setup.py install
 
-$ python setup.py install
-$ fufi run -i your.bam -o output_dir
+Usage
+-----
+Basic usage command is::
 
+    $ fufi run -i your.bam -o output_dir
+
+For basic help use::
+
+    $ fufi --help
+    $ fufi run --help
+
+For more extensive documentation refer to the manual.
