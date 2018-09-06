@@ -232,7 +232,7 @@ def get_reads(infile, sub_graph, max_dist, rl):
                     c += 1
     # assert(c == len(nodes))  #!
     if c != len(nodes):
-        print("WARNING: reads missing", c, len(nodes))
+        click.echo("WARNING: reads missing {} vs {}".format(c, len(nodes)), err=True)
 
     return rd, nodes_u, nodes_v, edge_data
 
@@ -476,8 +476,7 @@ def call_break_points(break_points, thresh=500):
         k_means = KMeans(init='k-means++', n_clusters=2, n_init=5, max_iter=20)
         labels = k_means.fit_predict(X)
         g = list(itertools.groupby(sorted(zip(labels, break_points)), key=lambda x: x[0]))
-        # print("kmeans")
-        # print("k", g)
+
         c1 = [j[1] for j in g[0][1]]
         if len(g) > 1:
             c2 = [j[1] for j in g[1][1]]
@@ -531,13 +530,10 @@ def call_break_points(break_points, thresh=500):
     info = {}
     count = 0
     contributing_reads = set([])
-    # print("c1", len(c1))
-    # print("c2", len(c2))
     for grp in [c1, c2]:
         if len(grp) == 0:
             continue  # When no c2 is found
-        #
-        # print(grp)
+
         for i in grp:
             contributing_reads = contributing_reads.union(i[1])
 
@@ -585,7 +581,7 @@ def call_break_points(break_points, thresh=500):
             info["join_type"] = str(info["joinA"]) + "to?"
         else:
             info["join_type"] = "?to?"
-    # print(info, len(contributing_reads))
+
     return info, contributing_reads
 
 
@@ -620,11 +616,9 @@ def linkup(assem, clip_length):
     results = []
     paired = set([])
 
-    print("--"*20)
     for _ in range(len(shared_templates_heap)):
 
         n_common, pair = heapq.heappop(shared_templates_heap)
-        print(n_common, pair, "\n")
         if n_common == 0:  # No reads in common, no pairing
             continue
 
@@ -850,7 +844,6 @@ def merge_assemble(grp, all_reads, bam, clip_length, insert_size, insert_stdev):
         if len(linkedup) > 0:
 
             for (side1, side2, call_info, contr_reads) in linkedup:  # Possibility of multiple events
-                print(side1)
                 if len(gray) == 0 and len(yellow) == 0:
                     # Could call a single break end here BND
                     continue
@@ -859,7 +852,6 @@ def merge_assemble(grp, all_reads, bam, clip_length, insert_size, insert_stdev):
                 read_set = contr_reads
 
                 if side1["linked"]:
-                    # print("Linked True")
                     call_result.update(call_info)  # Use the call information from the contig assembly if liked
                     call_result["contig"] = side1["contig"].upper() if len(side1["contig"]) >= len(side2["contig"]) else side2["contig"]
                     call_result["PRECISE"] = True
@@ -882,7 +874,6 @@ def merge_assemble(grp, all_reads, bam, clip_length, insert_size, insert_stdev):
                         read_set.union(contributing_reads)
 
                     call_result.update(score_reads(read_set, all_reads))
-                    print(call_result)
                     yield call_result
 
 
@@ -959,8 +950,6 @@ def merge_assemble(grp, all_reads, bam, clip_length, insert_size, insert_stdev):
 
 def cluster_reads(args):
 
-    print(args)
-
     # Read data into a graph
     # Link reads that share an overlapping soft-clip
     # Weak-link reads that are within ~500bb and have same rearrangement pattern
@@ -970,9 +959,6 @@ def cluster_reads(args):
 
     infile = pysam.AlignmentFile(args["sv_bam"], "rb")
     regions = get_regions(args["include"])
-
-    import time
-    t0 = time.time()
 
     edges = []
     all_flags = defaultdict(lambda: defaultdict(list))  # Linking clusters together rname: (flag): (chrom, pos)
@@ -984,7 +970,7 @@ def cluster_reads(args):
     for r in infile:
 
         if count % 10000 == 0:
-            print("count", count)
+            click.echo("SV reads processed {}".format(count), err=True)
         count += 1
 
         n1 = (r.qname, r.flag)
@@ -1050,7 +1036,6 @@ def cluster_reads(args):
     c = 0
     all_events = []
     for grp in nx.connected_component_subgraphs(G):  # Get large components, possibly multiple events
-        print("Size of large component", len(grp.nodes()))
         reads, nodes_u, nodes_v, edge_data = get_reads(infile, grp, max_dist, rl=int(args['read_length']))
         for event in merge_assemble(grp, reads, infile, args["clip_length"], args["insert_median"], args["insert_stdev"]):
 
@@ -1060,12 +1045,9 @@ def cluster_reads(args):
 
             c += 1
 
-
     df = pd.DataFrame.from_records(all_events)
-    #df = df.sort_values(["chrA", "posA"])
+    df = df.sort_values(["chrA", "posA"])
 
-    # print(df)
-    print("Hi", df.head())
     if args["output"] == "-" or args["output"] is None:
         outfile = sys.stdout
     else:

@@ -73,10 +73,10 @@ def get_reads(args):
                     read_names.add(r.qname)
 
     if len(read_names) == 0:
-        click.echo("No reads found, aborting")
+        click.echo("No reads found, aborting", err=True)
         quit()
 
-    click.echo("Retrieving {} query names into {}".format(len(read_names), out_name + ".bam"))
+    click.echo("Retrieving {} query names into {}".format(len(read_names), out_name + ".bam"), err=True)
     outbam = pysam.AlignmentFile(out_name + ".bam", "wb", template=bam)
     for r in bam.fetch():
         if r.qname in read_names and not r.flag & 2304:  # Skip not primary, and supplementary reads
@@ -86,8 +86,8 @@ def get_reads(args):
     # Save the insert size and read length for later
     insert_median, insert_stdev = np.median(insert_size), np.std(insert_size)
     read_length = np.mean(read_length)
-    click.echo("Median insert size: {} (+/- {})".format(np.round(insert_median, 2), np.round(insert_stdev, 2)))
-    click.echo("Read length: {}".format(np.round(read_length, 1)))
+    click.echo("Median insert size: {} (+/- {})".format(np.round(insert_median, 2), np.round(insert_stdev, 2)), err=True)
+    click.echo("Read length: {}".format(np.round(read_length, 1)), err=True)
 
     return insert_median, insert_stdev, read_length, out_name
 
@@ -105,7 +105,7 @@ def process(args):
     t0 = time.time()
     insert_median, insert_stdev, read_length, out_name = get_reads(args)
     convert_to_fastq(args, out_name)
-    click.echo("Collected reads in {} h:m:s\n".format(str(datetime.timedelta(seconds=int(time.time() - t0)))))
+    click.echo("Collected reads in {} h:m:s\n".format(str(datetime.timedelta(seconds=int(time.time() - t0)))), err=True)
     return {"insert_median": insert_median,
             "insert_stdev": insert_stdev,
             "read_length": read_length,

@@ -51,7 +51,8 @@ def run_command(ctx, **kwargs):
 
     ctx.forward(call_events, raw_bam=kwargs["bam"], sv_bam=kwargs["out_pfix"] + ".srt.bam", **kwargs)
 
-    click.echo("fufi run completed in {} h:m:s\n".format(str(datetime.timedelta(seconds=int(time.time() - t0)))))
+    click.echo("fufi run completed in {} h:m:s\n".format(str(datetime.timedelta(seconds=int(time.time() - t0)))),
+               err=True)
     # Todo raise an exception if index is missing
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -99,7 +100,7 @@ def launch_external_mapper(kwargs):
                                                            cwd=os.getcwd(),
                                                            s=kwargs["fastq"])
 
-    click.echo("Mapping command:\n" + command)
+    click.echo("Mapping command:\n" + command, err=True)
     proc = Popen(command, stdout=PIPE, shell=True)
     return proc, p, other_p
 
@@ -129,7 +130,7 @@ def sort_and_index(kwargs):
     """Convenience function to sort and index a sam file, then remove the input sam file"""
     c = "samtools view -uh {fix}.sam | samtools sort -@ {p} -o {fix}.srt.bam - ; samtools index -@ {p} {fix}.srt.bam"
     c = c.format(fix=kwargs["out_pfix"], p=kwargs["procs"])
-    click.echo(c)
+    click.echo(c, err=True)
     check_call(c, shell=True)
     os.remove(kwargs["out_pfix"] + ".sam")
 

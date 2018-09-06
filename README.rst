@@ -2,8 +2,9 @@
 Fusion finder - fufi
 ====================
 
-fufi is a structural variant detection tool that specialises
+fufi (will be) a structural variant detection tool that specialises
 in identifying rearrangements involving telomere fusions.
+WARNING. Not intended for use currently. Only supports limited .csv output
 
 Installation
 ------------
