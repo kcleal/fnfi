@@ -66,11 +66,9 @@ def sam_to_array(template):
         else:
             l[1] = template["last_seen_chrom"]
             chromname = l[1]
-
         if chromname not in chrom_ids:
             chrom_ids[chromname] = cc
             cc += 1
-
         r[0] = chrom_ids[chromname]  # l.rname  # chrom name
 
         pos = int(l[2])  # Add hard clips
@@ -149,21 +147,18 @@ def _choose_supplementary(template):
     locs = []
     # Find index of highest alignment score
     for read_idx, i in enumerate(arr):
-
         if len(i) == 0:  # Second read is missing for unpaired
             continue
         argmax = np.argmax(i[:, 4])
-
         for j in range(len(i)):  # Go through each row of read
             item = i[j]
             # chrom, pos, strand, read
             loc = "{}-{}-{}-{}".format(
-                ids_to_name[int(item[0])], int(item[1]+1), int(item[6]), int(item[7]))
+                ids_to_name[int(item[0])], int(item[1]), int(item[6]), int(item[7]))
             locs.append(loc)
 
             if loc not in template['score_mat']:
                 template['score_mat'][loc] = []
-
             # Values are popped when setting supplementary; prevents bug where read contains two identical aligns
             if j == argmax:  # Primary, next best s
                 template['score_mat'][loc] += [True, 0]
@@ -204,7 +199,7 @@ def _score_alignments(template, ri):
 def apply_filter(template, rows, path_score, second_best, dis_to_normal, norm_pairings):
 
     # The rows correspond to the indexes of the input array, not the original ordering of the data
-    template['rows'] = map(int, rows)
+    template['rows'] = list(map(int, rows))
 
     # To get the original rows use
     template['ri'] = dict(zip(template['data'][:, 5], range(len(template['data']))))  # Map of row_index and array index
@@ -221,13 +216,11 @@ def apply_filter(template, rows, path_score, second_best, dis_to_normal, norm_pa
 
 def to_output(template):
 
-    #sam = [template['inputdata'][i] for i in template['rows']]
-
     # Todo make sure all read-pairs have a mapping, otherwise write an unmapped
+    #
+    # paired = False if template["read2_length"] is None else True
+    sam = samclips.fixsam(template)
 
-    paired = False if template["read2_length"] is None else True
-    sam = samclips.fixsam(template) #sam, template['score_mat'], paired, template["read1_length"], template["read2_length"],
-                          #template['max_d'])
     if len(sam) == 0:  # Todo fix unmapped reads
         # print("No alignments")
         return None
@@ -239,11 +232,6 @@ def to_output(template):
     if any(i[0] == "*" or i[4] == "*" for i in sam):  # Unformatted cigar or unformatted cigarstring
         return None
 
-    # if template["name"] == "CL100051227L1C004R092_357046":
-    #     print(template)
-    #     print("")
-    #     print("".join(template["name"] + "\t" + "\t".join(i) + "\n" for i in sam))
-    #     quit()
     return "".join(template["name"] + "\t" + "\t".join(i) + "\n" for i in sam)
 
 
@@ -271,7 +259,6 @@ def intersecter(tree, chrom, start, end):
 def sam_itr(args):
 
     itr = args["sam"]
-
     tree = overlap_regions(args["search"])
 
     # First get header
@@ -279,6 +266,7 @@ def sam_itr(args):
     last_seen_chrom = None
     first_line = None
     for t in itr:
+        t = t.decode("utf-8")
         if t[0] == "@":
             header_string += t
             continue
@@ -294,7 +282,9 @@ def sam_itr(args):
     yield (first_line, last_seen_chrom, ol)
 
     for t in itr:
+        t = t.decode("utf-8")
         line = t.split("\t", 4)
+
         if line[3] != last_seen_chrom:
             last_seen_chrom = line[2]
 
@@ -327,23 +317,19 @@ def iterate_mappings(args):
     rows = []
     dropped = 0
     header_string = next(inputstream)
-
     yield header_string
+
     max_d = args["insert_median"] + 2*args["insert_stdev"]
     for m, last_seen_chrom, ol in inputstream:  # Alignment
-
         nm = m[0]
         if name != nm:
             if len(rows) > 0:
                 total += 1
                 if total % 10000 == 0:
                     click.echo(str(total) + "\n", err=True)
-
                 yield (rows, "sam", args["bias"], args["insert_median"], args["insert_stdev"], max_d, last_seen_chrom)
-
             rows = []
             name = nm
-
         rows.append((m, ol))  # String
 
     # Deal with last record

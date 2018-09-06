@@ -161,24 +161,10 @@ def set_supp_flags(sup, pri, primary_reversed, template):
 
     # Sometimes supplementary needs to be reverse complemented too
     # Occurs when primary has been rev-comp and supp is forward strand or vice versa
-    primary_flag = int(pri[0])
     if primary_reversed and not supflag & 16:
         rev_sup = True
     elif not primary_reversed and supflag & 16:
         rev_sup = True
-
-    # if (supflag & 64 and primary_flag & 64) and (supflag & 16 and not primary_flag & 16):
-    #     rev_sup = True
-    #
-    # elif (supflag & 64 and primary_flag & 64) and (not supflag & 16) and primary_flag & 16:
-    #     rev_sup = True
-    #
-    # elif (supflag & 128 and primary_flag & 128) and (supflag & 16 and not primary_flag & 16):
-    #     rev_sup = True
-    #
-    # elif (supflag & 128 and primary_flag & 128) and (not supflag & 16 and primary_flag & 16):
-    #     rev_sup = True
-
     else:
         rev_sup = False
 
@@ -250,7 +236,7 @@ def fixsam(template):
         t = score_mat
         strand = "-1" if int(l[0]) & 16 else "1"
         rid = 2 if int(l[0]) & 128 else 1
-        key = "{}-{}-{}-{}".format(l[1], str(int(l[2]) + 1), strand, rid)
+        key = "{}-{}-{}-{}".format(l[1], str(int(l[2])), strand, rid)
 
         if len(t[key]) > 2:
             # Prevent bug where two identical alignments possible
@@ -289,26 +275,16 @@ def fixsam(template):
         else:
             out.append(['sup', l, False])  # Supplementary
 
-    # if template["name"] == "CL100051227L1C004R022_116242":
-    #     print("Original primary", primary1[0], primary2[0])
-
     if paired:
         rev_A, rev_B = set_mate_flag(primary1, primary2, r1l, r2l, max_d,
                                      template["read1_reverse"], template["read2_reverse"], template)
 
-        # if template["name"] == "CL100051227L1C004R022_116242":
-        #     print(template["read1_reverse"], template["read2_reverse"])
-        #     print("new primary", primary1[0], primary2[0], rev_A, rev_B)
-
         # Check if supplementary needs reverse complementing
         for i in range(len(out)):
-            orig = out[i][1][0]
             if int(out[i][1][0]) & 64:  # Flag
                 revsup = set_supp_flags(out[i][1], primary1, template["read1_reverse"], template)
             else:
                 revsup = set_supp_flags(out[i][1], primary2, template["read2_reverse"], template)
-            # if template["name"] == "CL100051227L1C004R022_116242":
-            #     print("supp-->", orig, out[i][1][0], revsup, "index", "read1" if int(out[i][1][0]) & 64 else "read2")
             if revsup:
                 out[i][2] = True
 
@@ -316,22 +292,15 @@ def fixsam(template):
 
     # Add read seq info back in if necessary, before reverse complementing. Check for hard clips and clip as necessary
     for a_type, item, reverse_me in out:
-        # if template["name"] == "CL100051227L1C004R022_116242":
-        #     print(a_type, reverse_me)
         if item:
             if len(item[8]) <= 1:  # Sequence is set as "*", needs adding back in
                 add_sequence_back(item, reverse_me, template)
             elif reverse_me:
                 item[8] = rev_comp(item[8])
                 item[9] = item[9][::-1]
-
         else:
             # None here means no alignment for primary2
             pass
-
-    # if template["name"] == "CL100051227L1C004R022_116242":
-    #
-    #     quit()
 
     return [i[1] for i in out if i[1] is not None]
 

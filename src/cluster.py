@@ -166,9 +166,10 @@ def align_match(r, t):
     arr[:] = ""
 
     # Convert string to character array
-    r_s = np.array([r.seq]).view("S1")
-    t_s = np.array([t.seq]).view("S1")
-    arr[0, r_offset: len(r.seq)+r_offset] = r_s
+    r_s = np.array(list(r.seq))
+    t_s = np.array(list(t.seq))
+
+    arr[0, r_offset: len(r.seq) + r_offset] = r_s
     arr[1, t_offset: len(t.seq) + t_offset] = t_s
 
     istart = max(r_offset, t_offset)
@@ -280,7 +281,7 @@ def count_soft_clip_stacks(reads):
     return len(mi)
 
 
-def base_assemble(g, reads, bam, id):
+def base_assemble(g, reads, bam, id, main_graph):
     """
     Assembles reads that have overlaps. Uses alignment positions to determine contig construction
     :param g: The overlap graph
@@ -292,17 +293,6 @@ def base_assemble(g, reads, bam, id):
     # Note supplementary are included in assembly; helps link regions
     # Get reads of interest
     rd = [reads[n[0]][n[1]] for n in g.nodes()]
-
-    # Write out to file debug
-    # out = pysam.AlignmentFile("/Users/kezcleal/Documents/Data/fusion_finder_development/test/mlarge/v.bam", "wb", template=bam)
-    # for name, flag in g.nodes():
-    #     for item in reads[name].values():
-    #         print(bam.get_reference_name(item.rname), item.pos)
-    #         print(item)
-    #         out.write(item)
-    # out.close()
-    # from subprocess import call
-    # call("samtools sort -o /Users/kezcleal/Documents/Data/fusion_finder_development/test/mlarge/v.srt.bam /Users/kezcleal/Documents/Data/fusion_finder_development/test/mlarge/v.bam; samtools index /Users/kezcleal/Documents/Data/fusion_finder_development/test/mlarge/v.srt.bam", shell=True)
 
     def to_prob(q):
         return pow(10, (-1*q/10))
@@ -418,6 +408,16 @@ def base_assemble(g, reads, bam, id):
             chroms = bam.get_reference_name(chrom)
 
     if clipped:
+        # Find supporting nodes, keep only template name
+        nodes = set([])
+
+        # Add immediate edges
+        for n in g.nodes():
+            nodes.add(n[0])
+            for edge in main_graph.edges(n, data=True):
+                nodes.add(edge[1][0])
+
+
         res = {"bamrname": chroms,
                 "qual_l": break_qual_l,
                 "qual_r": break_qual_r,
@@ -428,7 +428,7 @@ def base_assemble(g, reads, bam, id):
                 "strand_r": strand_r,
                 "ref_start": ref_start,
                 "ref_end": ref_end + 1,
-                "read_names": set([i[0] for i in g.nodes()]),  # set(reads.keys()),
+                "read_names": nodes,
                 "contig": "".join(bases),
                 "id": id}
 
@@ -597,10 +597,7 @@ def linkup(assem, clip_length):
     :return: Pairs of linked clusters, result dict is returned for each. The first-in-pair contains additional info.
     If no link was found for the cluster, a singleton is returned.
     """
-    # print("Assembled conitgs", len(assem))
-    # for item in assem:
-    #     print(item["bamrname"], item["ref_start"], item["ref_end"], len(item["read_names"]), item["contig"])
-    # print("")
+
     if len(assem) < 2:
         for i in assem:
             j = i.copy()
@@ -622,15 +619,16 @@ def linkup(assem, clip_length):
     seen = set([])
     results = []
     paired = set([])
+
+    print("--"*20)
     for _ in range(len(shared_templates_heap)):
 
         n_common, pair = heapq.heappop(shared_templates_heap)
+        print(n_common, pair, "\n")
         if n_common == 0:  # No reads in common, no pairing
             continue
 
         a, b = pair
-        # if n_common < 0:
-        #     print("N common", n_common, "{}:{}-{}".format(a["bamrname"], a["ref_start"], a["ref_end"]), "{}:{}-{}".format(b["bamrname"], b["ref_start"], b["ref_end"]))
         if a["id"] in seen or b["id"] in seen:
             seen.add(a["id"])
             seen.add(b["id"])
@@ -696,6 +694,7 @@ def linkup(assem, clip_length):
         a2 = a.copy()
         b2 = b.copy()
         a2["linked"] = False
+
         if best_sc > clip_length:  # and best_non_sc >= 5:
             a2["linked"] = True
             paired.add(a["id"])
@@ -844,12 +843,14 @@ def merge_assemble(grp, all_reads, bam, clip_length, insert_size, insert_stdev):
     look_for_secondary = True  # If nothing can be assembled skip to look for secondary evidence (grey edges)
     if sub_clusters > 0:
 
-        assembled = [base_assemble(i, all_reads, bam, idx) for idx, i in enumerate(sub_grp_cc)]
+        assembled = [base_assemble(i, all_reads, bam, idx, grp) for idx, i in enumerate(sub_grp_cc)]
+
         linkedup = linkup(assembled, clip_length)
 
         if len(linkedup) > 0:
 
             for (side1, side2, call_info, contr_reads) in linkedup:  # Possibility of multiple events
+                print(side1)
                 if len(gray) == 0 and len(yellow) == 0:
                     # Could call a single break end here BND
                     continue
@@ -860,7 +861,7 @@ def merge_assemble(grp, all_reads, bam, clip_length, insert_size, insert_stdev):
                 if side1["linked"]:
                     # print("Linked True")
                     call_result.update(call_info)  # Use the call information from the contig assembly if liked
-                    call_result["contig"] = side1["contig"].upper() if len(side1["contig"]) >= side2["contig"] else side2["contig"]
+                    call_result["contig"] = side1["contig"].upper() if len(side1["contig"]) >= len(side2["contig"]) else side2["contig"]
                     call_result["PRECISE"] = True
                     call_result["linked"] = True
                     call_result["linked_clip_support"] = call_info["nreads"]
@@ -881,13 +882,13 @@ def merge_assemble(grp, all_reads, bam, clip_length, insert_size, insert_stdev):
                         read_set.union(contributing_reads)
 
                     call_result.update(score_reads(read_set, all_reads))
-                    # print(call_result)
-                    #yield call_result
+                    print(call_result)
+                    yield call_result
 
 
                 else:
 
-                    # continue
+                    continue
                     call_result["contig"] = side1["contig"]
                     # if len(yellow) > 0:
                     #     call_y, contributing_reads = process_edge_set(yellow, all_reads, bam, insert_size, insert_stdev, get_mate=False)
@@ -1052,6 +1053,7 @@ def cluster_reads(args):
         print("Size of large component", len(grp.nodes()))
         reads, nodes_u, nodes_v, edge_data = get_reads(infile, grp, max_dist, rl=int(args['read_length']))
         for event in merge_assemble(grp, reads, infile, args["clip_length"], args["insert_median"], args["insert_stdev"]):
+
             event["component"] = c
             event["component_size"] = len(grp.nodes())
             all_events.append(event)
@@ -1060,10 +1062,10 @@ def cluster_reads(args):
 
 
     df = pd.DataFrame.from_records(all_events)
-    df = df.sort_values(["chrA", "posA"])
+    #df = df.sort_values(["chrA", "posA"])
 
     # print(df)
-    print("")
+    print("Hi", df.head())
     if args["output"] == "-" or args["output"] is None:
         outfile = sys.stdout
     else:
