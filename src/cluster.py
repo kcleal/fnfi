@@ -35,7 +35,7 @@ class Scoper:
             return
 
         elif len(self.scope) > 0 and current_read.rname != self.scope[-1].rname:
-            self.scope = deque([])  # Empty scope on new chromosome
+            self.scope = deque([current_read])  # Empty scope on new chromosome
             return
 
         current_pos = current_read.pos
@@ -59,9 +59,9 @@ class Scoper:
         if len(self.scope) > 1:
             for i, t in enumerate(self.scope):
                 if i == len(self.scope) - 1:
-                    break
+                    break  # Don't pair with self
                 if t.qname == self.scope[-1].qname:
-                    continue
+                    continue  # Don't pair with same template
                 current = self.scope[-1]
 
                 # If current is a supplementary, it MAY be hard-clipped so only look for alignment-overlaps
@@ -134,6 +134,10 @@ class Scoper:
         yield None, None, None  # When not enough reads are in scope
 
 
+def echo(*args):
+    click.echo(args, err=True)
+
+
 def get_regions(reg_path):
     if not reg_path:
         return None
@@ -177,16 +181,12 @@ def align_match(r, t):
 
     mm = arr[0, istart:iend] != arr[1, istart:iend]
     mismatches = np.sum(mm)
-
     matches = len(mm) - mismatches
-
     identity = float(matches) / (mismatches + matches)
 
     p = 1.0
     # Find probability of mismatches
     if mismatches > 0:
-        ol = arr[:, istart:iend]
-
         mm_idxs = np.where(mm)[0]
         r_idxs = [i - r_offset + istart for i in mm_idxs]
         t_idxs = [i - t_offset + istart for i in mm_idxs]
@@ -281,7 +281,7 @@ def count_soft_clip_stacks(reads):
     return len(mi)
 
 
-def base_assemble(g, reads, bam, id, main_graph):
+def base_assemble(g, reads, bam, id):
     """
     Assembles reads that have overlaps. Uses alignment positions to determine contig construction
     :param g: The overlap graph
@@ -308,7 +308,7 @@ def base_assemble(g, reads, bam, id, main_graph):
             if not G.has_edge(u, v):
                 G.add_edge(u, v)
         else:
-            G.add_node(v, w=qual, kind=kind, n=1, strand=strand)
+            G.add_node(v, w=qual, kind=kind, n=1, strand=strand, rid=[])
             G.add_edge(u, v)
 
     G = nx.DiGraph()
@@ -321,7 +321,10 @@ def base_assemble(g, reads, bam, id, main_graph):
         c_pos = r.pos
         strand = -1 if r.flag & 16 else 1
         pred = -1  # Start of sequence node
+        v_first = None
+        v_last = None
         for idx, (opp, length) in enumerate(r.cigartuples):
+
             if opp == 4:
                 if idx == 0:  # Left clip
                     for j in range(length)[::-1]:
@@ -329,6 +332,8 @@ def base_assemble(g, reads, bam, id, main_graph):
                         offset = j + 1
                         u = pred
                         v = (base, c_chrom, c_pos, offset)
+                        if not v_first:
+                            v_first = v
                         update_edge(u, v, qual, G, "softclip_l", strand)
                         pred = v
                 else:  # right clip
@@ -337,14 +342,20 @@ def base_assemble(g, reads, bam, id, main_graph):
                         offset = j + 1
                         u = pred
                         v = (base, c_chrom, c_pos, offset)
+                        if j == length - 1:
+                            v_last = v
                         update_edge(u, v, qual, G, "softclip_r", strand)
                         pred = v
-            elif opp == 0:
+            elif opp == 0 or opp == 7 or opp == 8:  # All match, match (=), mis-match (X)
                 for j in range(length):
                     base, c_pos, qual = seq_pos.popleft()  # New c_pos defined
                     offset = 0
                     u = pred
                     v = (base, c_chrom, c_pos, offset)
+                    if idx == 0:
+                        v_first = v
+                    elif idx == len(r.cigartuples) - 1 and j == length - 1:
+                        v_last = v
                     update_edge(u, v, qual, G, "match", strand)
                     pred = v
             elif opp == 1:  # Insertion
@@ -355,14 +366,16 @@ def base_assemble(g, reads, bam, id, main_graph):
                     v = (base, c_chrom, c_pos, offset)
                     update_edge(u, v, qual, G, "insertion", strand)
                     pred = v
-            elif opp == 2:  # Deletion
+            elif opp == 5 or opp == 2:  # Hard clip or deletion
                 continue
-
             elif opp == 3:
                 break  # N
 
-        # Need to do X;8 and =;7 operations
-        assert len(seq_pos) == 0
+        # Add a start and end tag for each read, so reads contributing to contig sequence can be determined
+        if v_first:
+            G.node[v_first]["rid"].append((r.qname, r.flag))
+        if v_last:
+            G.node[v_last]["rid"].append((r.qname, r.flag))
 
     G.remove_node(-1)
 
@@ -376,6 +389,7 @@ def base_assemble(g, reads, bam, id, main_graph):
     strand_l, strand_r = 0, 0
     clipped = False
     ref_start, ref_end = 1e12, -1
+    read_list = []
 
     for i in range(len(path)):
         ni = G.node[path[i]]
@@ -407,16 +421,9 @@ def base_assemble(g, reads, bam, id, main_graph):
         if not chroms:
             chroms = bam.get_reference_name(chrom)
 
+        read_list += G.node[path[i]]["rid"]
+
     if clipped:
-        # Find supporting nodes, keep only template name
-        nodes = set([])
-
-        # Add immediate edges
-        for n in g.nodes():
-            nodes.add(n[0])
-            for edge in main_graph.edges(n, data=True):
-                nodes.add(edge[1][0])
-
 
         res = {"bamrname": chroms,
                 "qual_l": break_qual_l,
@@ -428,7 +435,7 @@ def base_assemble(g, reads, bam, id, main_graph):
                 "strand_r": strand_r,
                 "ref_start": ref_start,
                 "ref_end": ref_end + 1,
-                "read_names": nodes,
+                "read_names": set(read_list),
                 "contig": "".join(bases),
                 "id": id}
 
@@ -585,7 +592,7 @@ def call_break_points(break_points, thresh=500):
     return info, contributing_reads
 
 
-def linkup(assem, clip_length):
+def linkup(assem, clip_length, large_component, insert_size, insert_stdev, read_length):
     """
     Takes assembled clusters and tries to link them together based on the number of spanning reads between clusters
     :param assem: A list of assembled clusters, each is a results dict
@@ -605,10 +612,52 @@ def linkup(assem, clip_length):
             call_info, contributing_reads = call_break_points([j_tup])
         return [[j, None, call_info, contributing_reads]]  # Return singletons
 
+    def explore_local(starting_nodes, large_component, color, upper_bound):
+        seen = set(starting_nodes)
+        found = set([])
+        if len(starting_nodes) == 0:
+            return set([])
+        while True:
+            nd = starting_nodes.pop()
+            seen.add(nd)
+            for edge in large_component.edges(nd, data=True):
+                if edge[2]['c'] == color:
+                    if edge[0] not in seen:
+                        starting_nodes.add(edge[0])
+                        found.add(edge[0])
+                    elif edge[1] not in seen:
+                        starting_nodes.add(edge[1])
+                        found.add(edge[1])
+                if len(found) > upper_bound:
+                    return set([])
+            if len(starting_nodes) == 0:
+                break
+        return found
+
+    # Add supplementary edges to assembled clusters (yellow edges)
+    for i in range(len(assem)):
+        # Search local edges
+        link_nodes = assem[i]["read_names"]
+        assem[i]["link_nodes"] = link_nodes.union(explore_local(link_nodes.copy(), large_component, "y", 2*len(link_nodes)))
+
     # Decide which sequences to overlap based on the number of reads shared between clusters
     shared_templates_heap = []
     for a, b in itertools.combinations(assem, 2):
-        common = len(a["read_names"].intersection(b["read_names"]))
+
+        common = len(set([j[0] for j in a["link_nodes"]]).intersection(set([j[0] for j in b["link_nodes"]])))
+
+        # Expected local nodes
+        # Read clouds uncover variation in complex regions of the human genome. Bishara et al 2016.
+        # max template size * estimated coverage / read_length; 2 just to increase the upper bound a bit
+        local_upper_bound = ((insert_size + (2*insert_stdev)) * float(2 + common)) / float(read_length)
+
+        # Explore region a for grey edges
+        a_local = explore_local(a["link_nodes"].copy(), large_component, "g", local_upper_bound)
+        b_local = explore_local(b["link_nodes"].copy(), large_component, "g", local_upper_bound)
+
+        if len(a_local) > 0 and len(b_local) > 0:
+            common += len(set([j[0] for j in a_local]).intersection(set([j[0] for j in b_local])))
+
         a["intersection"] = common
         heapq.heappush(shared_templates_heap, (-1*common, (a, b)))  # Max heapq
 
@@ -619,6 +668,7 @@ def linkup(assem, clip_length):
     for _ in range(len(shared_templates_heap)):
 
         n_common, pair = heapq.heappop(shared_templates_heap)
+
         if n_common == 0:  # No reads in common, no pairing
             continue
 
@@ -779,7 +829,7 @@ def score_reads(read_names, all_reads):
         return {}
 
     pri, sup = [], []
-    for name in read_names:
+    for name, flag in read_names:
         for flag in all_reads[name]:
             read = all_reads[name][flag]
             if not read.flag & 2048:
@@ -795,7 +845,11 @@ def score_reads(read_names, all_reads):
     tags_supp = [dict(j.tags) for j in sup]
 
     for item in ["DP", "DA", "NM", "DN", "AS"]:
-        data[item + "pri"] = np.array([i[item] for i in tags_primary]).astype(float).mean()
+        v = np.array([i[item] for i in tags_primary]).astype(float)
+        if len(v) > 0:
+            data[item + "pri"] = v.mean()
+        else:
+            echo("WARNING: {} tag missing", item)
     data["SP" + "pri"] = len([1 for i in tags_primary if int(i["SP"]) == 1]) / 2.  # Number of split pairs
 
     for item in ["EV", "DA", "NM", "NP", "AS"]:  # EV depends on mapper used
@@ -812,7 +866,7 @@ def score_reads(read_names, all_reads):
     return data
 
 
-def merge_assemble(grp, all_reads, bam, clip_length, insert_size, insert_stdev):
+def merge_assemble(grp, all_reads, bam, clip_length, insert_size, insert_stdev, read_length):
     """
     Takes an overlap graph and breaks its down into clusters with overlapping soft-clips. Contig sequences are generated
     for each of these clusters. Then contigs are paired up and linked. If no linking can be found the contig is treated
@@ -829,6 +883,7 @@ def merge_assemble(grp, all_reads, bam, clip_length, insert_size, insert_stdev):
     yellow = [i for i in edges if i[2]['c'] == "y"]
     black = [i for i in edges if i[2]['c'] == "b"]
 
+    # First identify clusters of reads with overlapping-soft clips i.e. sub graphs with black edges
     sub_grp = nx.Graph()
     sub_grp.add_edges_from([i for i in edges if i[2]["c"] == "b"])  # black edges = matching reads with soft-clips
     sub_grp_cc = list(nx.connected_component_subgraphs(sub_grp))
@@ -837,9 +892,9 @@ def merge_assemble(grp, all_reads, bam, clip_length, insert_size, insert_stdev):
     look_for_secondary = True  # If nothing can be assembled skip to look for secondary evidence (grey edges)
     if sub_clusters > 0:
 
-        assembled = [base_assemble(i, all_reads, bam, idx, grp) for idx, i in enumerate(sub_grp_cc)]
+        assembled = [base_assemble(i, all_reads, bam, idx) for idx, i in enumerate(sub_grp_cc)]
 
-        linkedup = linkup(assembled, clip_length)
+        linkedup = linkup(assembled, clip_length, grp, insert_size, insert_stdev, read_length)
 
         if len(linkedup) > 0:
 
@@ -858,94 +913,79 @@ def merge_assemble(grp, all_reads, bam, clip_length, insert_size, insert_stdev):
                     call_result["linked"] = True
                     call_result["linked_clip_support"] = call_info["nreads"]
 
-                    if len(yellow) > 0:
-                        call_info, contributing_reads = process_edge_set(yellow, all_reads, bam, insert_size, insert_stdev, get_mate=False)
-                        call_result["supp_support"] = call_info["nreads"]
-                        read_set.union(contributing_reads)
-
-                    if len(black) > 0:
-                        call_info, contributing_reads = process_edge_set(black, all_reads, bam, insert_size, insert_stdev)
-                        call_result["clip_support"] = call_info["nreads"]
-                        read_set.union(contributing_reads)
-
-                    if len(gray) > 0:
-                        call_info, contributing_reads = process_edge_set(gray, all_reads, bam, insert_size, insert_stdev)
-                        call_result["pe_support"] = call_info["nreads"]
-                        read_set.union(contributing_reads)
-
                     call_result.update(score_reads(read_set, all_reads))
                     yield call_result
 
-
-                else:
-
-                    continue
-                    call_result["contig"] = side1["contig"]
-                    # if len(yellow) > 0:
-                    #     call_y, contributing_reads = process_edge_set(yellow, all_reads, bam, insert_size, insert_stdev, get_mate=False)
-                    #     call_result["supp_support"] = call_y["nreads"]
-                    #     if call_y["cipos95A"] == 0:
-                    #         call_result["PRECISE"] = True
-                    #         call_result.update(call_y)  # Use this as the main call
-                    #     read_set.union(contributing_reads)
-
-                    # if len(black) > 0:
-                    #     call_b, contributing_reads = process_edge_set(black, all_reads, bam, insert_size, insert_stdev)
-                    #     call_result["clip_support"] = call_b["nreads"]
-                    #
-                    #     if call_info["cipos95A"] == 0 and len(call_result) < 3:
-                    #         call_result["PRECISE"] = True
-                    #         call_result.update(call_info)
-                    #         call_result["clip_support"] = call_b["nreads"]
-                    #     read_set.union(contributing_reads)
-
-                    if len(gray) > 0:
-                        call_g, contributing_reads = process_edge_set(gray, all_reads, bam, insert_size, insert_stdev)
-                        call_result["pe_support"] = call_g["nreads"]
-                        if len(call_result) < 5:
-                            call_result.update(call_g)
-                        read_set.union(contributing_reads)
-                    call_result["linked"] = False
-                    call_result.update(score_reads(read_set, all_reads))
-                    yield call_result
-        # else:
-        #     print("len linked up is 0")
-    return
-    if look_for_secondary:
-
-        read_set = set([])
-        # No black edges
-        # Look for other evidence
-        call_result = {}
-        if len(yellow) > 0:
-            call_info, contributing_reads = process_edge_set(yellow, all_reads, bam, insert_size, insert_stdev, get_mate=False)
-            call_result.update(call_info)
-            call_result["supp_support"] = call_info["nreads"]
-            if call_info["cipos95A"] == 0:
-                call_result["PRECISE"] = True
-            else:
-                call_result["PRECISE"] = False
-            read_set.union(contributing_reads)
-
-        if len(black) > 0:
-            call_info, contributing_reads = process_edge_set(black, all_reads, bam, insert_size, insert_stdev)
-            if len(call_result) == 0:
-                call_result.update(call_info)
-            call_result["clip_support"] = call_info["nreads"]
-            call_result["PRECISE"] = False
-            read_set.union(contributing_reads)
-
-        if len(gray) > 0:
-            call_info, contributing_reads = process_edge_set(gray, all_reads, bam, insert_size, insert_stdev)
-            if len(call_result) == 0:
-                call_result.update(call_info)
-            call_result["pe_support"] = call_info["nreads"]
-            call_result["PRECISE"] = False
-            read_set.union(contributing_reads)
-
-        if len(call_result) > 0:
-            call_result.update(score_reads(read_set, all_reads))
-            yield call_result
+    #
+    #             else:
+    #
+    #                 continue
+    #                 call_result["contig"] = side1["contig"]
+    #                 # if len(yellow) > 0:
+    #                 #     call_y, contributing_reads = process_edge_set(yellow, all_reads, bam, insert_size, insert_stdev, get_mate=False)
+    #                 #     call_result["supp_support"] = call_y["nreads"]
+    #                 #     if call_y["cipos95A"] == 0:
+    #                 #         call_result["PRECISE"] = True
+    #                 #         call_result.update(call_y)  # Use this as the main call
+    #                 #     read_set.union(contributing_reads)
+    #
+    #                 # if len(black) > 0:
+    #                 #     call_b, contributing_reads = process_edge_set(black, all_reads, bam, insert_size, insert_stdev)
+    #                 #     call_result["clip_support"] = call_b["nreads"]
+    #                 #
+    #                 #     if call_info["cipos95A"] == 0 and len(call_result) < 3:
+    #                 #         call_result["PRECISE"] = True
+    #                 #         call_result.update(call_info)
+    #                 #         call_result["clip_support"] = call_b["nreads"]
+    #                 #     read_set.union(contributing_reads)
+    #
+    #                 if len(gray) > 0:
+    #                     call_g, contributing_reads = process_edge_set(gray, all_reads, bam, insert_size, insert_stdev)
+    #                     call_result["pe_support"] = call_g["nreads"]
+    #                     if len(call_result) < 5:
+    #                         call_result.update(call_g)
+    #                     read_set.union(contributing_reads)
+    #                 call_result["linked"] = False
+    #                 call_result.update(score_reads(read_set, all_reads))
+    #                 yield call_result
+    #     # else:
+    #     #     print("len linked up is 0")
+    # return
+    # if look_for_secondary:
+    #
+    #     read_set = set([])
+    #     # No black edges
+    #     # Look for other evidence
+    #     call_result = {}
+    #     if len(yellow) > 0:
+    #         call_info, contributing_reads = process_edge_set(yellow, all_reads, bam, insert_size, insert_stdev, get_mate=False)
+    #         call_result.update(call_info)
+    #         call_result["supp_support"] = call_info["nreads"]
+    #         if call_info["cipos95A"] == 0:
+    #             call_result["PRECISE"] = True
+    #         else:
+    #             call_result["PRECISE"] = False
+    #         read_set.union(contributing_reads)
+    #
+    #     if len(black) > 0:
+    #         call_info, contributing_reads = process_edge_set(black, all_reads, bam, insert_size, insert_stdev)
+    #         if len(call_result) == 0:
+    #             call_result.update(call_info)
+    #         call_result["clip_support"] = call_info["nreads"]
+    #         call_result["PRECISE"] = False
+    #         read_set.union(contributing_reads)
+    #
+    #     if len(gray) > 0:
+    #         call_info, contributing_reads = process_edge_set(gray, all_reads, bam, insert_size, insert_stdev)
+    #         if len(call_result) == 0:
+    #             call_result.update(call_info)
+    #         call_result["pe_support"] = call_info["nreads"]
+    #         call_result["PRECISE"] = False
+    #         read_set.union(contributing_reads)
+    #
+    #     if len(call_result) > 0:
+    #         call_result.update(score_reads(read_set, all_reads))
+    #         yield call_result
 
 
 def cluster_reads(args):
@@ -976,16 +1016,20 @@ def cluster_reads(args):
         n1 = (r.qname, r.flag)
         all_flags[r.qname][r.flag].append((r.rname, r.pos))
 
-        rname = infile.get_reference_name(r.rname)
+        # Limit to regions
         if regions:
+            rname = infile.get_reference_name(r.rname)
             if rname not in regions or len(regions[rname].search(r.pos, r.pos+1)) == 0:
                 continue
 
         scope.update(r)  # Add alignment to scope
         grey_added = 0
-        for t, ol, sup_edge in scope.iterate():  # Other read, overlap current read
+
+        for t, ol, sup_edge in scope.iterate():  # Other read, overlap current read, supplementary edge
+
             if not t:
                 break
+
             n2 = (t.qname, t.flag)
             all_flags[t.qname][t.flag].append((t.rname, t.pos))
 
@@ -995,7 +1039,8 @@ def cluster_reads(args):
             # Finally white edge means a read1 to read2 edge
             if ol and not sup_edge:
                 identity, prob_same = align_match(r, t)
-                if prob_same > 0.1:  # Add a black edge
+
+                if prob_same > 0.01:  # Add a black edge
                     edges.append((n1, n2, {"p": [(r.rname, r.pos), (t.rname, t.pos)], "c": "b"}))
 
             elif not ol and not sup_edge:
@@ -1006,7 +1051,7 @@ def cluster_reads(args):
                     # Add a grey edge
                     edges.append((n1, n2, {"p": [(r.rname, r.pos), (t.rname, t.pos)], "c": "g"}))
                     grey_added += 1
-                    if grey_added > 6:
+                    if grey_added > 60:
                         break  # Stop the graph getting unnecessarily dense
 
             elif sup_edge:
@@ -1037,7 +1082,8 @@ def cluster_reads(args):
     all_events = []
     for grp in nx.connected_component_subgraphs(G):  # Get large components, possibly multiple events
         reads, nodes_u, nodes_v, edge_data = get_reads(infile, grp, max_dist, rl=int(args['read_length']))
-        for event in merge_assemble(grp, reads, infile, args["clip_length"], args["insert_median"], args["insert_stdev"]):
+
+        for event in merge_assemble(grp, reads, infile, args["clip_length"], args["insert_median"], args["insert_stdev"], args["read_length"]):
 
             event["component"] = c
             event["component_size"] = len(grp.nodes())
