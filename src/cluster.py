@@ -453,6 +453,7 @@ def call_break_points(break_points, thresh=500):
     Makes a call from a list of break points. Can take a list of lots of break points, or one merged cluster of breaks.
     Outliers are dropped. Breakpoints are clustered using kmeans into sets
     :param break_points: A 4 tuple (3 or 5 join, set([(read_name, flag)..]), chromosome, break point position)
+    :param thresh: the distance threshold to determine if clustered
     :return: Info dict containing a summary of the call
     """
     break_points = sorted(break_points, key=lambda x: (x[2], x[3]))  # By chromosome and co-ordinate
@@ -467,7 +468,7 @@ def call_break_points(break_points, thresh=500):
 
     # If minimum chrom counts < 0.1, reduce. Drop low coverage chromosomes
     if len(chroms) == 2:
-        ci = chroms.items()
+        ci = list(chroms.items())
         total = float(sum(chroms.values()))
         c = None
         if ci[0][1] / total < 0.1:
@@ -893,7 +894,6 @@ def merge_assemble(grp, all_reads, bam, clip_length, insert_size, insert_stdev, 
     if sub_clusters > 0:
 
         assembled = [base_assemble(i, all_reads, bam, idx) for idx, i in enumerate(sub_grp_cc)]
-
         linkedup = linkup(assembled, clip_length, grp, insert_size, insert_stdev, read_length)
 
         if len(linkedup) > 0:
@@ -914,6 +914,7 @@ def merge_assemble(grp, all_reads, bam, clip_length, insert_size, insert_stdev, 
                     call_result["linked_clip_support"] = call_info["nreads"]
 
                     call_result.update(score_reads(read_set, all_reads))
+                    echo(call_result)
                     yield call_result
 
     #
