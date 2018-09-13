@@ -5,10 +5,7 @@ this version works with paried end reads rather than single contigs. Also borrow
 import array
 import math
 import time
-from heapq import heappush, heappop
-from itertools import count
 import sys
-#import intervaltree
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
@@ -75,7 +72,7 @@ def distance_next_best_aln(d):
 
 def find_pairs(template, match_score=1, mu=400, sigma=150):
     """
-    This only performs a basic pairing in the style of bwa. Called from another script.
+    This only performs a basic pairing in the style of bwa.
     Sij = Si + Sj - min{-a * log4 P(dij), U} is the bwa heuristic
     Chooses ONE best alignment for each of the reads and uses this to make the the pair.
     Sorts the alignments by score first, then uses a heuristic to stop searching if a low score is found.
@@ -296,7 +293,7 @@ def remove_extraneous(arr, diff=10):
     :param diff: if an overlapping alignment has a score difference < x, throw away
     :return: a subset which has the shorter mappings removed
     """
-
+    import intervaltree
     tree = intervaltree.IntervalTree()
     for idx, i in enumerate(arr):
         tree.addi(i[2], i[3], (i[4], idx))  # Start, end, score
@@ -386,16 +383,11 @@ def process(rt):
     args = [contig_l, mu, sigma, max_insertion, min_aln, max_homology, ins_cost,
             hom_cost, inter_cost, U, match_score]
 
-    # rt = [chrom, pos, query_start, query_end, aln_score, row_index, strand, read, num_matches]
-    # required = [chrom, pos, query_start, query_end, score, row_index, strand, read]
-    columns = [0, 1, 2, 3, 4, 5, 6, 7]
-
-    table = rt['data'][:, columns]
+    table = rt['data'][:, range(8)]
 
     if not single_end:
         # If it is unclear which read comes first this function can be used to generate both orientations:
         orientations = read_orientations(table, r1_len, r2_len)
-
         both_ways = [align_path_c.optimal_path(i, *args) for i in orientations]
 
         # Remove any bad paths
@@ -403,13 +395,12 @@ def process(rt):
         if len(both_ways) == 0:
             return False
 
-        path, length, second_best, dis_to_normal, norm_pairings = sorted(both_ways, key=lambda x: x[1])[-1]  # Choose best
+        path, length, second_best, dis_to_normal, norm_pairings = sorted(both_ways, key=lambda x: x[1])[-1]  # Best
 
     else:
         path, length, second_best, dis_to_normal, norm_pairings = align_path_c.optimal_path(table, *args)
 
     if int(length) < int(second_best):
-
         sys.stderr.write("WARNING: primary path < secondary path\n")
 
     return path, length, second_best, dis_to_normal, norm_pairings

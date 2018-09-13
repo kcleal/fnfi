@@ -1,15 +1,15 @@
 from align import data_io
 from align import pairing
 import multiprocessing
-from queue import Queue
 import time
 import os
 from threading import Thread
 try:
     from StringIO import StringIO
+    from queue import Queue
 except ImportError:
-    from io import StringIO
-
+    from io import StringIO  # Python 2
+    from Queue import Queue
 import sys
 import click
 

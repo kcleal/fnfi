@@ -276,6 +276,7 @@ def sam_itr(args):
 
         yield header_string
         break
+
     pos = int(first_line[3])
     ol = intersecter(tree, first_line[2], pos, pos + 250)
 

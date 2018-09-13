@@ -27,7 +27,7 @@ def cli():
               default=None, type=click.Path(exists=True))
 @click.option('--clip-length', help="Minimum soft-clip length; >= threshold are kept.", default=21, type=int,
               show_default=True)
-@click.option('--map-script', help="""External shell script for mapping. Default is to use bwa mem internally. Script must take positional arguments as: $1 reference genome; $2 .fastq file - must be interleaved if paired-end, otherwise single end reads are assumed; $3 threads to use.""", default=None, type=click.Path(exists=True))
+@click.option('--map-script', help="""External shell script for mappping interleaved fastq file. Default is to use a bwa mem. Script must take positional arguments as: $1 reference genome; $2 .fastq file - must be interleaved if paired-end, otherwise single end reads are assumed; $3 threads to use.""", default=None, type=click.Path(exists=True))
 @click.option("-p", "--procs", help="Processors to use", type=cpu_range, default=1, show_default=True)
 @click.option('--dest', help="Destination folder to use/create for saving results. Defaults to directory of input bam",
               default=None, type=click.Path())
