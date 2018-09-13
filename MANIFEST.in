@@ -2,3 +2,4 @@ include align/*.*
 include src/*.*
 include tests/*.*
 include tests/data/*.*
+include docs/*
