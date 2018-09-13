@@ -1,0 +1,4 @@
+
+        [console_scripts]
+        fufi=src.fufi:cli
+    
