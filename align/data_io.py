@@ -327,7 +327,7 @@ def iterate_mappings(args):
             if len(rows) > 0:
                 total += 1
                 if total % 10000 == 0:
-                    click.echo(str(total) + "\n", err=True)
+                    click.echo(str(total), err=True)
                 yield (rows, "sam", args["bias"], args["insert_median"], args["insert_stdev"], max_d, last_seen_chrom)
             rows = []
             name = nm

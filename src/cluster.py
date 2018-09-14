@@ -660,7 +660,12 @@ def linkup(assem, clip_length, large_component, insert_size, insert_stdev, read_
             common += len(set([j[0] for j in a_local]).intersection(set([j[0] for j in b_local])))
 
         a["intersection"] = common
-        heapq.heappush(shared_templates_heap, (-1*common, (a, b)))  # Max heapq
+        if common > 0:
+            item = (-1*common, (a, b))
+            heapq.heappush(shared_templates_heap, item)  # Max heapq
+            print(common, len(a), len(b), item[0])
+            print(a)
+            print(b)
 
     seen = set([])
     results = []
@@ -668,7 +673,13 @@ def linkup(assem, clip_length, large_component, insert_size, insert_stdev, read_
 
     for _ in range(len(shared_templates_heap)):
 
-        n_common, pair = heapq.heappop(shared_templates_heap)
+        try:
+            n_common, pair = heapq.heappop(shared_templates_heap)
+        except:
+            print(len(shared_templates_heap))
+            for item in shared_templates_heap:
+                print(item)
+            quit()
 
         if n_common == 0:  # No reads in common, no pairing
             continue

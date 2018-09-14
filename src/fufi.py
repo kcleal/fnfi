@@ -9,6 +9,12 @@ import datetime
 
 cpu_range = click.IntRange(min=1, max=cpu_count())
 
+def mk_dest(d):
+    if d is not None and not os.path.exists(d):
+        try:
+            os.mkdir(d)
+        except:
+            raise OSError("Couldn't create directory")
 
 # ----------------------------------------------------------------------------------------------------------------------
 @click.group(chain=False, invoke_without_command=False)
@@ -38,6 +44,7 @@ def run_command(ctx, **kwargs):
 
     if not os.path.exists(kwargs["bam"] + ".bai"):
         raise IOError("Input .bai index file not found.")
+    mk_dest(kwargs["dest"])
 
     other_kwargs = ctx.forward(find_reads, kwargs)
     kwargs.update(other_kwargs)
@@ -74,6 +81,7 @@ def run_command(ctx, **kwargs):
 def find_reads(**kwargs):
     """Filters input .bam for read-pairs that are discordant or have a soft-clip of length >= '--clip-length'"""
     # insert_median, insert_stdev, read_length, out_name
+    mk_dest(kwargs["dest"])
     return find_pairs.process(kwargs)
 
 
@@ -152,10 +160,11 @@ def sort_and_index(kwargs):
 @click.option('--verbose', type=click.Choice(["True", "False"]), default="True", help="If set to 'True' output is directed to a folder with the same name as the input file. Otherwise a .vcf file is generated.")
 @click.option("-p", "--procs", help="Processors to use", type=cpu_range, default=1, show_default=True)
 @click.option('--include', help=".bed file, limit calls to regions.", default=None, type=click.Path(exists=True))
-@click.option('--dest', help="Folder to use/create for saving verbose results. Defaults to directory of input bam if --verbose is True, and --dest is not provided",
+@click.option('--dest', help="Folder to use/create for saving results. Defaults to directory of input bam directory",
               default=None, type=click.Path())
 def call_events(**kwargs):
     """Clusters reads into SV-events. Takes as input the original .bam file, and a .bam file with only sv-like reads."""
-    # Todo add the dest option properly
+    # Create dest in not done so already
+    mk_dest(kwargs["dest"])
     cluster.cluster_reads(kwargs)
 
