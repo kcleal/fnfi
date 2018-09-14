@@ -16,7 +16,7 @@ def cli():
     """Fusion-finder calls structural variants from input .bam or .fastq files."""
     pass
 
-# TOdo chage include to limit
+
 # ----------------------------------------------------------------------------------------------------------------------
 @cli.command("run")
 @click.argument('reference', required=True, type=click.Path(exists=True))
@@ -35,6 +35,10 @@ def cli():
 def run_command(ctx, **kwargs):
     """Run the fusion-finder pipeline."""
     t0 = time.time()
+
+    if not os.path.exists(kwargs["bam"] + ".bai"):
+        raise IOError("Input .bai index file not found.")
+
     other_kwargs = ctx.forward(find_reads, kwargs)
     kwargs.update(other_kwargs)
     single = True if kwargs["procs"] == 1 else False
@@ -53,7 +57,7 @@ def run_command(ctx, **kwargs):
 
     click.echo("fufi run completed in {} h:m:s\n".format(str(datetime.timedelta(seconds=int(time.time() - t0)))),
                err=True)
-    # Todo raise an exception if index is missing
+
 
 # ----------------------------------------------------------------------------------------------------------------------
 @cli.command("find-reads")

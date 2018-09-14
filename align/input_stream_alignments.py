@@ -6,10 +6,10 @@ import os
 from threading import Thread
 try:
     from StringIO import StringIO
-    from queue import Queue
+    from Queue import Queue
 except ImportError:
     from io import StringIO  # Python 2
-    from Queue import Queue
+    from queue import Queue
 import sys
 import click
 
@@ -35,14 +35,10 @@ def worker(queue, out_queue):
             break
 
         else:
-
             big_string = ""
-
             for data_tuple in job:
-
                 read_template = data_io.make_template(*data_tuple)
                 process_template(read_template)
-
                 if read_template['passed']:
                     outstring = data_io.to_output(read_template)
                     if outstring:
@@ -54,7 +50,6 @@ def worker(queue, out_queue):
                 out_queue.put(big_string)
             else:
                 click.echo("WARNING: no output from job.", err=True)
-
         queue.task_done()
 
 
@@ -79,8 +74,7 @@ def process_reads(args):
             out_queue = multiprocessing.Queue()
 
             the_pool = multiprocessing.Pool(args["procs"] if args["procs"] != 0 else multiprocessing.cpu_count(),
-                                            worker,
-                                            (the_queue, out_queue,))
+                                            worker, (the_queue, out_queue,))
 
             def writer_thread(q, outsam):
                 while True:
@@ -146,5 +140,3 @@ def process_reads(args):
             for item in to_write:
                 if item:
                     outsam.write(item)
-
-
