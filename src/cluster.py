@@ -51,8 +51,8 @@ class Scoper:
             break
         self.scope.append(current_read)
 
-    def overlap(self, start1, end1, start2, end2):
-        """Does the range (start1, end1) overlap with (start2, end2)?"""
+    @staticmethod
+    def overlap(start1, end1, start2, end2):
         return max(0, min(end1, end2) - max(start1, start2))
 
     def iterate(self):
@@ -243,17 +243,15 @@ def max_kmer(reads, k=27):
         if s:
             for j in [s[i:i+k] for i in range(len(s) - k)]:
                 kmers[j] += 1
-    try:
+    if len(kmers) > 0:
         return max(kmers.values())
-    except:
-        return 0
+    return 0
 
 
 def merge_intervals(intervals):
     # thanks https://codereview.stackexchange.com/questions/69242/merging-overlapping-intervals
     sorted_by_lower_bound = sorted(intervals, key=lambda tup: tup[0])
     merged = []
-
     for higher in sorted_by_lower_bound:
         if not merged:
             merged.append(higher)
@@ -276,7 +274,6 @@ def count_soft_clip_stacks(reads):
         if cigar:
             if (cigar[0][0] == 4 and cigar[0][1] > 20) or (cigar[-1][0] == 4 and cigar[-1][1] > 20):
                 blocks.append((r.pos, r.reference_end))
-
     mi = merge_intervals(blocks)
     return len(mi)
 
@@ -463,7 +460,6 @@ def call_break_points(break_points, thresh=500):
     if len(chroms) > 2:
         c = [i[0] for i in sorted(chroms.items(), key=lambda x: x[1], reverse=True)][:2]
         chroms = {k: v for k, v in chroms.items() if k in c}
-
         break_points = [i for i in break_points if i[2] in chroms]
 
     # If minimum chrom counts < 0.1, reduce. Drop low coverage chromosomes
@@ -522,7 +518,6 @@ def call_break_points(break_points, thresh=500):
                 current = [i]
         if len(current) > 0:
             clst.append(current)
-
         if len(clst) == 2:
             c1, c2 = clst
         if len(clst) > 2:  # Choose largest 2 clusters
@@ -541,7 +536,6 @@ def call_break_points(break_points, thresh=500):
     for grp in [c1, c2]:
         if len(grp) == 0:
             continue  # When no c2 is found
-
         for i in grp:
             contributing_reads = contributing_reads.union(i[1])
 
@@ -601,7 +595,6 @@ def linkup(assem, clip_length, large_component, insert_size, insert_stdev, read_
     :return: Pairs of linked clusters, result dict is returned for each. The first-in-pair contains additional info.
     If no link was found for the cluster, a singleton is returned.
     """
-
     if len(assem) < 2:
         for i in assem:
             j = i.copy()
@@ -662,6 +655,7 @@ def linkup(assem, clip_length, large_component, insert_size, insert_stdev, read_
         a["intersection"] = common
         if common > 0:
             item = (-1*common, (a, b))
+            # Todo change to some other priority queue
             heapq.heappush(shared_templates_heap, item)  # Max heapq
             print(common, len(a), len(b), item[0])
             print(a)
@@ -806,7 +800,7 @@ def process_edge_set(edges, all_reads, bam, insert_size, insert_stdev, get_mate=
                     mate1 = all_reads[n][get_mate_flag(primary1.flag, n, all_reads)]
                 else:
                     mate1 = all_reads[n][f]
-            except:
+            except ValueError:
                 continue  # Badly formatted flag, or unpaired
 
             pair = sorted([primary1, mate1], key=lambda x: x.pos)
@@ -836,7 +830,6 @@ def process_edge_set(edges, all_reads, bam, insert_size, insert_stdev, get_mate=
 
 
 def score_reads(read_names, all_reads):
-
     if len(read_names) == 0:
         return {}
 
