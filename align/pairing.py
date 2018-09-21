@@ -1,6 +1,6 @@
 """
-Adaptation version2! from recursive region assembler. Find the best path through a collection of alignments, although
-this version works with paried end reads rather than single contigs. Also borrows the pairing heuristic from bwa.
+Find the best path through a collection of alignments
+Works with paried-end reads rather or single contigs. Borrows the pairing heuristic from bwa.
 """
 import array
 import math
@@ -67,106 +67,6 @@ def distance_next_best_aln(d):
     for i, dis in ls_diffs:
         d[i, 10] = dis
     return d
-
-
-
-def find_pairs(template, match_score=1, mu=400, sigma=150):
-    """
-    This only performs a basic pairing in the style of bwa.
-    Sij = Si + Sj - min{-a * log4 P(dij), U} is the bwa heuristic
-    Chooses ONE best alignment for each of the reads and uses this to make the the pair.
-    Sorts the alignments by score first, then uses a heuristic to stop searching if a low score is found.
-    :param template:
-    :param match_score:
-    :param mu:
-    :param sigma:
-    :return:
-    """
-    d = template.data
-
-    # Add empty row for the distance metric; distance unbiased is index 10
-    try:
-        d = np.append(d, [[0] for _ in range(len(d))], axis=1)
-    except:
-        print(d)
-        quit()
-
-    arr = [d[d[:, 7] == 1], d[d[:, 7] == 2]]  # Split the array into each read
-
-    # arr = remove_low_qual(arr)
-
-    if len(arr[0]) == 0 or len(arr[1]) == 0:  # Read is unpaired, sanity check
-        return False, False
-
-    # Find distance to next best alignment and get read_kx score
-    arr = map(distance_next_best_aln, arr)
-    read_kxs = map(calc_kx, [i[:, 4] for i in arr])
-
-    best_score = 0
-    index = []
-    high_scores = []
-    best_normal_orientation = 0  # Keep track of the best normal pairing score, F first R second
-    for idx, a in enumerate(arr[0]):
-        for jdx, b in enumerate(arr[1]):
-            Si = a[9]
-            Sj = b[9]
-            pos1, pos2 = a[1], b[1]
-            chrom1, chrom2 = a[0], b[0]
-            strand1, strand2 = a[6], b[6]
-
-            # Calculate pairing score:
-            FR = False
-            if chrom1 != chrom2:
-                cost = 9
-            else:
-                cost, FR = bwa_pair_score(pos1, pos2, strand1, strand2, mu, sigma, match_score)
-
-            score = Si + Sj - cost
-            actual_score = a[9] + b[9] - cost
-
-            if score > best_score:
-                best_score = actual_score
-                index = [idx, jdx + len(arr[0])]
-
-            elif score < best_score - 20:  # * .8:
-               break  # Scores are more or less in descending order, break on lowish score
-
-            # Score and reads in normal orientation
-            if chrom1 == chrom2 and FR and abs(pos1 - pos2) < 2000:  # Intra, normal pair
-                    if actual_score > best_normal_orientation:
-                        best_normal_orientation = actual_score
-
-            # Find the difference in alignment scores for the next best alignment for each read in the pair
-            r1_diff = a[10]  # Using Un-biased scores
-            r2_diff = b[10]
-
-            # Use the Non-biased alignment scores
-            high_scores.append([score, r1_diff, r2_diff, actual_score])
-
-    hs = np.array(sorted([i for i in high_scores], reverse=True))
-    pair_kx = calc_kx(hs[:, 0])  # Use the BIASED pairing score, not biased pairing score for calculation
-
-    kn = best_score - best_normal_orientation
-
-    score_matrix = list(hs[0]) + [kn, pair_kx, read_kxs[0], read_kxs[1]]
-    score_matrix = dict(
-        zip(["biased_score", "r1diff", "r2diff", "actual_score", "dis_to_normal", "extra_score_pair",
-             "extra_score_1", "extra_score_2"], score_matrix))
-
-    return index, score_matrix
-
-
-def convert_to_graph(dod):
-    # Dict of dicts
-    G = nx.DiGraph()
-    G = nx.from_dict_of_dicts(dod, create_using=G)
-
-    pos = nx.spring_layout(G)
-    nx.draw(G, pos)
-    labels = nx.get_edge_attributes(G, 'cost')
-    nx.draw_networkx_edge_labels(G, pos,edge_labels=labels)
-    nx.draw_networkx_labels(G, pos)
-    plt.show()
 
 
 def optimal_path(segments, contig_l, mu, sigma, max_insertion=100, min_aln=20, max_homology=100, ins_cost=0,
@@ -287,6 +187,7 @@ def optimal_path(segments, contig_l, mu, sigma, max_insertion=100, min_aln=20, m
 
 def remove_extraneous(arr, diff=10):
     """
+    Not currently used, as it is quicker not to do so.
     Remove extraneous mappings, i.e. short mappings which fall within a larger mapping, or alignments with a large
     overlap but one has a low score.
     :param arr: alignments in psl style format for a single read, sorted by query_start, query_end
@@ -306,8 +207,6 @@ def remove_extraneous(arr, diff=10):
         bad_rows |= set([j[2][1] for j in overlaps if j[2][0] < (score - diff)])
 
     return np.delete(arr, list(bad_rows), axis=0)
-
-
 
 
 def read_orientations(t, r1_len, r2_len):
@@ -394,7 +293,6 @@ def process(rt):
         both_ways = [i for i in both_ways if len(i) > 0]
         if len(both_ways) == 0:
             return False
-
         path, length, second_best, dis_to_normal, norm_pairings = sorted(both_ways, key=lambda x: x[1])[-1]  # Best
 
     else:
@@ -419,6 +317,7 @@ if __name__ == "__main__":
     # Data is [chrom, pos, query_start, query_end, aln_score, row_index, strand, read, num_matches, biased]
     # Data should be sorted by the query_start column
     # Path is 2,4,6
+    # Todo make a test out of this
     read1 = [[0, 1100, 0, 75, 75, 0, -1,1,40],
              #[0, 1200, 0, 16, 16, 1, -1,1, 16],
              [0, 1100, 0, 100, 100, 1, -1,1, 80],
