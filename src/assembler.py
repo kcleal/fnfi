@@ -161,7 +161,6 @@ def base_assemble(g, reads, bam, id):
         read_list += G.node[path[i]]["rid"]
 
     if clipped:
-
         res = {"bamrname": chroms,
                 "qual_l": break_qual_l,
                 "qual_r": break_qual_r,
@@ -208,6 +207,14 @@ def explore_local(starting_nodes, large_component, color, upper_bound):
     return found
 
 
+def get_tuple(j):
+    # Need (3 or 5 join, soft-clip length, chromosome, break point position)
+    return (5 if j["left_clips"] > j["right_clips"] else 3,
+            j["read_names"],
+            j["bamrname"],
+            j["ref_start"] if j["left_clips"] > j["right_clips"] else j["ref_end"])
+
+
 def linkup(assem, clip_length, large_component, insert_size, insert_stdev, read_length):
     """
     Takes assembled clusters and tries to link them together based on the number of spanning reads between clusters
@@ -217,24 +224,15 @@ def linkup(assem, clip_length, large_component, insert_size, insert_stdev, read_
     If no link was found for the cluster, a singleton is returned.
     """
     if len(assem) < 2:
-        print("arrived linkup in cluster; help")
-        quit()
-        for i in assem:
-            j = i.copy()
-            j["linked"] = False
-            j_tup = (5 if j["left_clips"] > j["right_clips"] else 3,
-                     j["read_names"],
-                     j["bamrname"],
-                     j["ref_start"] if j["left_clips"] > j["right_clips"] else j["ref_end"])
-            call_info, contributing_reads = call_break_points([j_tup])
-        return [[j, None, call_info, contributing_reads]]  # Return singletons
+        j = assem[0]
+        j["linked"] = False
+        return [[j, [get_tuple(j)]]]  # Return singletons
 
     # Add supplementary edges to assembled clusters (yellow edges)
-    for i in range(len(assem)):
-        # Search local edges
+    for i in range(len(assem)):  # Search local edges
         link_nodes = assem[i]["read_names"]
-        assem[i]["link_nodes"] = link_nodes.union(explore_local(link_nodes.copy(),
-                                                                large_component, "y", 2*len(link_nodes)))
+        assem[i]["link_nodes"] = link_nodes.union(explore_local(link_nodes.copy(), large_component, "y",
+                                                                2*len(link_nodes)))
 
     # Decide which sequences to overlap based on the number of reads shared between clusters
     shared_templates_heap = []
@@ -257,29 +255,18 @@ def linkup(assem, clip_length, large_component, insert_size, insert_stdev, read_
         a["intersection"] = common
         if common > 0:
             item = (-1*common, (a, b))
-            # Todo change to some other priority queue, or try heapify; heappush seems to bug out with lots of same val
-            heapq.heappush(shared_templates_heap, item)  # Max heapq
-            print(common, len(a), len(b), item[0])
-            print(a)
-            print(b)
+            shared_templates_heap.append(item)  # Max heapq
 
+    heapq.heapify(shared_templates_heap)
     seen = set([])
     results = []
     paired = set([])
 
     for _ in range(len(shared_templates_heap)):
 
-        try:
-            n_common, pair = heapq.heappop(shared_templates_heap)
-        except:
-            print(len(shared_templates_heap))
-            for item in shared_templates_heap:
-                print(item)
-            quit()
-
+        n_common, pair = heapq.heappop(shared_templates_heap)
         if n_common == 0:  # No reads in common, no pairing
             continue
-
         a, b = pair
         if a["id"] in seen or b["id"] in seen:
             seen.add(a["id"])
@@ -294,22 +281,18 @@ def linkup(assem, clip_length, large_component, insert_size, insert_stdev, read_
             negative_strand = True if i["strand_r"] < 0 else False
             sc_support = i["right_clips"]
             qual = int(i["qual_r"])
-
             if i["left_clips"] > i["right_clips"]:
                 left_clipped = True
                 negative_strand = True if i["strand_l"] < 0 else False
                 sc_support = i["left_clips"]
                 qual = int(i["qual_l"])
-
             seqs.append((i["contig"], sc_support, i["bamrname"], i["ref_start"], i["ref_end"] + 1, left_clipped,
                          negative_strand, qual))
 
         ainfo, binfo = seqs
         aseq, bseq = ainfo[0], binfo[0]
-        # If seqs are on the same chrom
-        if ainfo[2] == binfo[2]:
-            # If clips are on same side, rev comp one of them
-            if ainfo[5] == binfo[5]:
+        if ainfo[2] == binfo[2]:  # If seqs are on the same chrom
+            if ainfo[5] == binfo[5]:  # If clips are on same side, rev comp one of them
                 bseq = rev_comp(bseq)
         else:
             if ainfo[6]:  # negative strand
@@ -329,42 +312,20 @@ def linkup(assem, clip_length, large_component, insert_size, insert_stdev, read_
         # non_sc_a = len(a_align) - sc_a
         # non_sc_b = len(b_align) - sc_b
 
-        # Add some breakpoint info, even if pair can not be linked
-        # Need (3 or 5 join, soft-clip length, chromosome, break point position)
-        a_tup = (5 if a["left_clips"] > a["right_clips"] else 3,
-                 a["read_names"],
-                 a["bamrname"],
-                 a["ref_start"] if a["left_clips"] > a["right_clips"] else a["ref_end"])
-        b_tup = (5 if b["left_clips"] > b["right_clips"] else 3,
-                 b["read_names"],
-                 b["bamrname"],
-                 b["ref_start"] if b["left_clips"] > b["right_clips"] else b["ref_end"])
-        # Todo remove call_break_points from this script, invoke this later
-        # call_info, contributing_reads = call_break_points([a_tup, b_tup])
         best_sc = max([sc_a, sc_b])
         # best_non_sc = max([non_sc_a, non_sc_b])
-        a2 = a.copy()
-        b2 = b.copy()
-        a2["linked"] = False
-
+        a["linked"] = False
+        a["best_sc"] = best_sc
         if best_sc > clip_length:  # and best_non_sc >= 5:
-            a2["linked"] = True
+            a["linked"] = True
             paired.add(a["id"])
-            paired.add(b["id"])
-        results.append([a2, b2])  #, call_info, contributing_reads])
+        results.append([a, [get_tuple(a), get_tuple(b)]])
 
     # Deal with un-linked clusters
     for a in assem:
         if a["id"] not in paired:
-            a2 = a.copy()
-            a2["linked"] = False
-            a_tup = (5 if a["left_clips"] > a["right_clips"] else 3,
-                     a["read_names"],
-                     a["bamrname"],
-                     a["ref_start"] if a["left_clips"] > a["right_clips"] else a["ref_end"])
-            results.append([a_tup])
-            # call_info, contributing_reads = call_break_points([a_tup])
-            # results.append([a2, None, call_info, contributing_reads])
+            a["linked"] = False
+            results.append([a, [get_tuple(a)]])
 
     return results
 
@@ -380,47 +341,50 @@ def merge_assemble(grp, all_reads, bam, clip_length, insert_size, insert_stdev, 
     :param clip_length:
     :return:
     """
-    edges = grp.edges(data=True)
-
-    gray = [i for i in edges if i[2]['c'] == "g"]
-    yellow = [i for i in edges if i[2]['c'] == "y"]
-    black = [i for i in edges if i[2]['c'] == "b"]
-
     # First identify clusters of reads with overlapping-soft clips i.e. sub graphs with black edges
     sub_grp = nx.Graph()
-    sub_grp.add_edges_from([i for i in edges if i[2]["c"] == "b"])  # black edges = matching reads with soft-clips
+    sub_grp.add_edges_from([i for i in grp.edges(data=True) if i[2]["c"] == "b"])  # black edges = matching reads with soft-clips
     sub_grp_cc = list(nx.connected_component_subgraphs(sub_grp))
     sub_clusters = len(sub_grp_cc)
 
-    look_for_secondary = True  # If nothing can be assembled skip to look for secondary evidence (grey edges)
+    # look_for_secondary = True  # If nothing can be assembled skip to look for secondary evidence (grey edges)
     if sub_clusters > 0:
 
+        # Make an assembly for each sub-cluster i.e. overlapping soft-clipped regions
         assembled = [base_assemble(i, all_reads, bam, idx) for idx, i in enumerate(sub_grp_cc)]
+        # Pair-up soft-clip regions; items are a 2-length or 1-length tuple for paired or un-paired sub-clusters
         linkedup = linkup(assembled, clip_length, grp, insert_size, insert_stdev, read_length)
 
-        if len(linkedup) > 0:
+        return linkedup
 
-            for item in linkedup:
-                if len(item) == 2:  # Contig for each side?
+    else:
+        return []
 
-            #for (side1, side2, call_info, contr_reads) in linkedup:  # Possibility of multiple events
-                if len(gray) == 0 and len(yellow) == 0:
-                    # Could call a single break end here BND
-                    continue
-                look_for_secondary = False
-                call_result = {}
-                read_set = contr_reads
-
-                if side1["linked"]:
-                    call_result.update(call_info)  # Use the call information from the contig assembly if liked
-                    call_result["contig"] = side1["contig"].upper() if len(side1["contig"]) >= len(side2["contig"]) else side2["contig"]
-                    call_result["PRECISE"] = True
-                    call_result["linked"] = True
-                    call_result["linked_clip_support"] = call_info["nreads"]
-                    # Todo score_reads outside of this script
-                    call_result.update(score_reads(read_set, all_reads))
-                    echo(call_result)
-                    yield call_result
+        # if len(linkedup) > 0:
+        #
+        #     for item in linkedup:
+        #         if len(item) == 2:  # Contig for each side?
+        #             echo("assembler herer")
+        #             continue
+        #
+        #     #for (side1, side2, call_info, contr_reads) in linkedup:  # Possibility of multiple events
+        #         if len(gray) == 0 and len(yellow) == 0:
+        #             # Could call a single break end here BND
+        #             continue
+        #
+        #         look_for_secondary = False
+        #         side1, side2, call_info, contr_reads = item
+        #         call_result = {}
+        #         read_set = contr_reads
+        #
+        #         if side1["linked"]:
+        #             call_result.update(call_info)  # Use the call information from the contig assembly if liked
+        #             call_result["contig"] = side1["contig"].upper() if len(side1["contig"]) >= len(side2["contig"]) else side2["contig"]
+        #             call_result["PRECISE"] = True
+        #             call_result["linked"] = True
+        #             call_result["linked_clip_support"] = call_info["nreads"]
+        #             echo(call_result)
+        #             yield call_result
 
     #
     #             else:
