@@ -225,10 +225,10 @@ def linkup(assem, clip_length, large_component, insert_size, insert_stdev, read_
     """
     if len(assem) < 2:
         j = assem[0]
-        j["linked"] = False
+        j["linked"] = "true single"
         return [[j, [get_tuple(j)]]]  # Return singletons
 
-    # Add supplementary edges to assembled clusters (yellow edges)
+    # Add supplementary edges to assembled clusters (yellow edges); these are the 'link_nodes'
     for i in range(len(assem)):  # Search local edges
         link_nodes = assem[i]["read_names"]
         assem[i]["link_nodes"] = link_nodes.union(explore_local(link_nodes.copy(), large_component, "y",
@@ -314,17 +314,17 @@ def linkup(assem, clip_length, large_component, insert_size, insert_stdev, read_
 
         best_sc = max([sc_a, sc_b])
         # best_non_sc = max([non_sc_a, non_sc_b])
-        a["linked"] = False
+        a["linked"] = "weak link"
         a["best_sc"] = best_sc
         if best_sc > clip_length:  # and best_non_sc >= 5:
-            a["linked"] = True
+            a["linked"] = "strong link"
             paired.add(a["id"])
         results.append([a, [get_tuple(a), get_tuple(b)]])
 
     # Deal with un-linked clusters
     for a in assem:
         if a["id"] not in paired:
-            a["linked"] = False
+            a["linked"] = "unpaired"
             results.append([a, [get_tuple(a)]])
 
     return results

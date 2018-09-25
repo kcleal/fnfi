@@ -495,19 +495,25 @@ def cluster_reads(args):
                 echo("No assembly")
                 continue
 
+            echo("Number of events in c {}".format(len(events)))
             for event_info, breakpoint_tuple in events:
                 if len(breakpoint_tuple) == 1:
                     # Unlinked sub-cluster, partly assembled
                     echo("Unlinked")
 
-                    echo(breakpoint_tuple)
-                    echo(event_info)
+                    if event_info['ref_start']==16891859:
+                        echo(breakpoint_tuple)
+                        echo(event_info)
 
                     echo("")
                 elif len(breakpoint_tuple) == 2:
                     # Linked
 
-
+                    echo("Linked")
+                    if event_info['ref_start']==16891859 or event_info['ref_start'] == 16891936:
+                        echo(breakpoint_tuple)
+                        echo(event_info)
+                    echo("")
                     # Make a call using the linked contigs as the base
                     call_info, contributing_reads = caller.call_break_points(breakpoint_tuple)
                     event_info.update(call_info)
