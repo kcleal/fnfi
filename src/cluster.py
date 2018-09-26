@@ -7,7 +7,6 @@ import quicksect
 import itertools
 import click
 import sys
-import pandas as pd
 from src import assembler, caller
 try:
     from StringIO import StringIO
@@ -242,23 +241,19 @@ def make_nuclei(g):
     :return:
     """
     sub_grp = nx.Graph()
-    # edges = [i for i in g.edges(data=True) if i[2]["c"] == "b"]
-
     look_for = ["y", "g"]
     edge_colors = {k: list(v) for k, v in itertools.groupby(g.edges(data=True), key=lambda x: x[2]['c'])}
+    edges = []
     if "b" in edge_colors:
         edges = edge_colors["b"]
-
     elif "y" in edge_colors:
         edges = edge_colors["y"]
         look_for.remove("y")
-
     elif "g" in edge_colors:
         edges = edge_colors["g"]
         look_for = []
-
     else:
-        raise ValueError("Single read?")
+        pass  # Single read, no connections
 
     # Look for other unique connected components
     sub_grp.add_edges_from(edges)
@@ -364,7 +359,6 @@ def block_model_evidence(bm, parent_graph):
     return bm
 
 
-
 def get_reads(infile, sub_graph, max_dist, rl):
     """Using infile, collect reads belonging to sub_graph.
     :param infile: the input file
@@ -372,6 +366,7 @@ def get_reads(infile, sub_graph, max_dist, rl):
     :param max_dist: used to define an interval around reads of interest; this interval is then searched using pysam
     :param rl: the read length
     :returns read dictionary, u nodes, v nodes, edge data"""
+    # Todo create a cache of reads, to help prevent file lookups
     nodes_u, nodes_v, edge_data = zip(*sub_graph.edges(data=True))
     nodes = set(nodes_u).union(set(nodes_v))
     coords = []
@@ -404,7 +399,7 @@ def get_reads(infile, sub_graph, max_dist, rl):
     if c != len(nodes):
         click.echo("WARNING: reads missing from collection - {} vs {}".format(c, len(nodes)), err=True)
 
-    return rd, nodes_u, nodes_v, edge_data
+    return rd  #, nodes_u, nodes_v, edge_data
 
 
 def max_kmer(reads, k=27):
@@ -557,6 +552,7 @@ def construct_graph(args):
     infile = pysam.AlignmentFile(args["sv_bam"], "rb")
     regions = get_regions(args["include"])
 
+    nodes = []
     edges = []
     all_flags = defaultdict(lambda: defaultdict(list))  # Linking clusters together rname: (flag): (chrom, pos)
 
@@ -571,6 +567,8 @@ def construct_graph(args):
         count += 1
 
         n1 = (r.qname, r.flag)
+
+        nodes.append((n1, {"p": (r.rname, r.pos)}))
         all_flags[r.qname][r.flag].append((r.rname, r.pos))
 
         # Limit to regions
@@ -598,7 +596,7 @@ def construct_graph(args):
                 identity, prob_same = align_match(r, t)
 
                 if prob_same > 0.01:  # Add a black edge
-                    edges.append((n1, n2, {"p": [(r.rname, r.pos), (t.rname, t.pos)], "c": "b"}))
+                    edges.append((n1, n2, {"c": "b"}))  # "p": [(r.rname, r.pos), (t.rname, t.pos)],
 
             elif not ol and not sup_edge:
                 # Make sure both are discordant, mapped to same chromosome
@@ -606,20 +604,22 @@ def construct_graph(args):
                     continue
                 if abs(r.pnext - t.pnext) < max_dist:
                     # Add a grey edge
-                    edges.append((n1, n2, {"p": [(r.rname, r.pos), (t.rname, t.pos)], "c": "g"}))
+                    edges.append((n1, n2, {"c": "g"}))
                     grey_added += 1
                     if grey_added > 60:
                         break  # Stop the graph getting unnecessarily dense
 
             elif sup_edge:
                 # Add a yellow edge
-                edges.append((n1, n2, {"p": [(r.rname, r.pos), (t.rname, t.pos)], "c": "y"}))
+                edges.append((n1, n2, {"c": "y"}))
 
     # Add read-pair information to the graph, link regions together
     G = nx.Graph()
+    G.add_nodes_from(nodes)
     G.add_edges_from(edges)
     new_edges = []
-    for g in nx.connected_component_subgraphs(G):
+
+    for g in nx.connected_component_subgraphs(G, copy=True):
 
         # Add white edges between read-pairs which are NOT in the subgraph
         nodes_to_check = [(n, all_flags[n].keys()) for n, f in g.nodes()]
@@ -631,7 +631,8 @@ def construct_graph(args):
 
                 # Only add an edge if either u or v is missing, not if both (or neither) missing
                 if has_u != has_v:  # XOR
-                    new_edges.append((u, v, {"p": list(set(all_flags[n][f1] + all_flags[n][f2])), "c": "w"}))
+                    # "p": list(set(all_flags[n][f1] + all_flags[n][f2]))
+                    new_edges.append((u, v, {"c": "w"}))
 
     # Regroup based on white edges (link together read-pairs)
     G.add_edges_from(new_edges)
@@ -658,15 +659,17 @@ def cluster_reads(args):
         for grp in nx.connected_component_subgraphs(G):  # Get large components, possibly multiple events
 
             bm = make_block_model(grp, args["insert_median"], args["insert_stdev"], args["read_length"])
-
             bm = block_model_evidence(bm, grp)  # Annotate block model with evidence
+
+            reads = get_reads(infile, grp, max_dist, int(args['read_length']))
+            caller.call_from_block_model(bm, grp, reads)
             continue
 
             if bm == 1:
                 continue
             quit()
             continue
-            reads, nodes_u, nodes_v, edge_data = get_reads(infile, grp, max_dist, int(args['read_length']))
+
 
             events = assembler.merge_assemble(grp, reads, infile, args["clip_length"], args["insert_median"],
                                               args["insert_stdev"], args["read_length"])

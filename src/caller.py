@@ -2,6 +2,11 @@ from collections import Counter
 import itertools
 from sklearn.cluster import KMeans
 import numpy as np
+import click
+
+
+def echo(*args):
+    click.echo(args, err=True)
 
 
 def call_break_points(break_points, thresh=500):
@@ -158,5 +163,33 @@ def call_to_string(call_info):
 
 
 
-def call_from_block_model(bm, parent_graph):
-    pass
+def single(bm, parent_graph):
+
+    # Get edges from parent graph
+    echo(parent_graph.nodes(data=True))
+    cluster_pos = []
+    mate_pos = []
+    for n in list(bm.nodes())[0]:
+        echo(n)
+        echo(parent_graph.node[n])
+
+    quit()
+
+def call_from_block_model(bm, parent_graph, reads):
+
+    if len(bm.edges) > 1:
+        # Score edges
+        echo('multi edges')
+        for u, v, data in bm.edges(data=True):
+            echo(data)
+
+    if len(bm.nodes()) == 1:
+        # Single isolated node
+        echo('single node')
+        single(bm, parent_graph)
+
+
+    if len(bm.edges) == 1:
+        # Easy case
+        echo('one edge')
+

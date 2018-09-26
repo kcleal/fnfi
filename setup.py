@@ -30,7 +30,7 @@ setup(
         'quicksect',
         'pybedtools',
         'natsort',
-        'networkx',
+        'networkx>=2.0',
         'scikit-learn',
         'pytest'
     ],
