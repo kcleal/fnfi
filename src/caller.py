@@ -3,10 +3,74 @@ import itertools
 from sklearn.cluster import KMeans
 import numpy as np
 import click
+from src import assembler
 
 
 def echo(*args):
     click.echo(args, err=True)
+
+
+def get_mate_flag(flag, name, rds):
+    if flag & 64:  # First in pair; get second-in-pair primary
+        return [i for i in rds[name].keys() if not i & 2048 and i & 128][0]
+    else:
+        return [i for i in rds[name].keys() if not i & 2048 and i & 64][0]
+
+
+def get_pri_flag(flag, name, rds):
+    if flag & 64:
+        return [i for i in rds[name].keys() if not i & 2048 and i & 64][0]
+    else:
+        return [i for i in rds[name].keys() if not i & 2048 and not i & 64][0]
+
+
+def process_edge_set(edges, all_reads, bam, insert_size, insert_stdev, get_mate=True):
+    # Grey edge means primary alignments share a similar rearrangement pattern. Therefore, the other mate-pair needs to
+    # be collected for each node (read) along each edge, make a call for each read-mate pair
+
+    break_points = []
+    seen = set([])
+    for u, v, d in edges:
+        for n, f in (u, v):  # node name, flag
+            if n in seen:
+                continue
+            seen.add(n)
+            try:
+                if f & 2048:
+                    primary1 = all_reads[n][get_pri_flag(f, n, all_reads)]
+                else:
+                    primary1 = all_reads[n][f]
+                if get_mate:
+                    mate1 = all_reads[n][get_mate_flag(primary1.flag, n, all_reads)]
+                else:
+                    mate1 = all_reads[n][f]
+            except ValueError:
+                continue  # Badly formatted flag, or unpaired
+
+            pair = sorted([primary1, mate1], key=lambda x: x.pos)
+            join = []
+            for read in pair:
+                rid = {read.qname}
+                # Sometimes a clip may be present, use this as a break point if available
+                cl = []  # Get the biggest clipped portion of the read-pair to find the break-point
+                if read.cigartuples[0][0] == 4 or read.cigartuples[0][0] == 5:  # Left clip
+                    cl.append((5, rid, bam.get_reference_name(read.rname), read.pos))
+                if read.cigartuples[-1][0] == 4 or read.cigartuples[-1][0] == 5:
+                    cl.append((3, rid, bam.get_reference_name(read.rname), read.reference_end))
+                if len(cl) > 0:
+                    join.append(sorted(cl, key=lambda x: x[1])[-1])
+                else:
+                    # Breakpoint position is beyond the end of the last read
+                    if read.flag & 16:  # Read on reverse strand guess to the left
+                        p = read.pos - (insert_size / 2) + insert_stdev
+                        t = 5
+                    else:
+                        p = read.reference_end + (insert_size / 2) - insert_stdev
+                        t = 3
+                    join.append((t, rid, bam.get_reference_name(read.rname), int(p)))
+            break_points += join
+
+    return break_points  # caller.call_break_points(break_points)
 
 
 def call_break_points(break_points, thresh=500):
@@ -163,33 +227,79 @@ def call_to_string(call_info):
 
 
 
-def single(bm, parent_graph):
+def single(bm, parent_graph, reads, bam, assemblies):
 
     # Get edges from parent graph
+    echo(assemblies[list(bm.nodes())[0]])
+
     echo(parent_graph.nodes(data=True))
     cluster_pos = []
-    mate_pos = []
     for n in list(bm.nodes())[0]:
         echo(n)
         echo(parent_graph.node[n])
+    echo("----")
 
-    quit()
 
-def call_from_block_model(bm, parent_graph, reads):
+def one_edge(bm, parent_graph, reads, bam, assemblies):
+
+    for node_set in bm.nodes():
+        echo(assemblies[node_set])
+
+    pass
+
+
+def multi(bm, parent_graph, reads, bam, assemblies):
+
+    # Score edges
+    edge_scores = []
+    for u, v, data in bm.edges(data=True):
+        score = data["weight"]
+        if "result" in data:
+            score = sum(data["result"].values())
+        edge_scores.append((u, v, score))
+
+    edge_scores = sorted(edge_scores, key=lambda k: k[2], reverse=True)
+    seen = set([])
+    for u, v, scr in edge_scores:
+        if u in seen or v in seen:
+            continue
+        seen.add(u)
+        seen.add(v)
+        sub = bm.subgraph([u, v])
+        yield one_edge(sub, parent_graph, reads, bam, assemblies)
+
+
+def call_from_block_model(bm, parent_graph, reads, bam):
+
+    # Try and assemble nodes in the block model
+    assemblies = {}
+    for node_set in bm.nodes():
+        sub = parent_graph.subgraph(node_set)
+        if any(i[2]["c"] == "b" for i in sub.edges(data=True)):
+            # assemble reads if any overlapping soft-clips
+            assemblies[node_set] = assembler.base_assemble(sub, reads, bam)
+        else:
+            assemblies[node_set] = {}
 
     if len(bm.edges) > 1:
         # Score edges
         echo('multi edges')
-        for u, v, data in bm.edges(data=True):
-            echo(data)
+
+        for p in multi(bm, parent_graph, reads, bam, assemblies):
+            echo("yielded", p)
+        echo("----")
 
     if len(bm.nodes()) == 1:
+
         # Single isolated node
         echo('single node')
-        single(bm, parent_graph)
+        return
+        single(bm, parent_graph, reads, bam, assemblies)
 
 
     if len(bm.edges) == 1:
+
         # Easy case
         echo('one edge')
-
+        return
+        one_edge(bm, parent_graph, reads, bam, assemblies)

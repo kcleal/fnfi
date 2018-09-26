@@ -367,11 +367,8 @@ def get_reads(infile, sub_graph, max_dist, rl):
     :param rl: the read length
     :returns read dictionary, u nodes, v nodes, edge data"""
     # Todo create a cache of reads, to help prevent file lookups
-    nodes_u, nodes_v, edge_data = zip(*sub_graph.edges(data=True))
-    nodes = set(nodes_u).union(set(nodes_v))
-    coords = []
-    for i in edge_data:
-        coords += i['p']
+
+    coords = [dta['p'] for node, dta in sub_graph.nodes(data=True)]
     coords = itertools.groupby(sorted(set(coords), key=lambda x: (x[0], x[1])), key=lambda x: x[0])  # Groupby chrom
 
     # Make intervals of reads that are near one another
@@ -392,14 +389,14 @@ def get_reads(infile, sub_graph, max_dist, rl):
         # Collect reads
         for chrom, start, end in m:
             for aln in infile.fetch(chrom, 1 if start <= 0 else start, end):
-                if (aln.qname, aln.flag) in nodes:
+                if (aln.qname, aln.flag) in sub_graph:
                     rd[aln.qname][aln.flag] = aln
                     c += 1
     # assert(c == len(nodes))  #!
-    if c != len(nodes):
-        click.echo("WARNING: reads missing from collection - {} vs {}".format(c, len(nodes)), err=True)
+    if c != len(sub_graph.nodes()):
+        click.echo("WARNING: reads missing from collection - {} vs {}".format(c, len(sub_graph.nodes())), err=True)
 
-    return rd  #, nodes_u, nodes_v, edge_data
+    return rd
 
 
 def max_kmer(reads, k=27):
@@ -443,67 +440,7 @@ def count_soft_clip_stacks(reads):
     return len(mi)
 
 
-def get_mate_flag(flag, name, rds):
-    if flag & 64:  # First in pair; get second-in-pair primary
-        return [i for i in rds[name].keys() if not i & 2048 and i & 128][0]
-    else:
-        return [i for i in rds[name].keys() if not i & 2048 and i & 64][0]
 
-
-def get_pri_flag(flag, name, rds):
-    if flag & 64:
-        return [i for i in rds[name].keys() if not i & 2048 and i & 64][0]
-    else:
-        return [i for i in rds[name].keys() if not i & 2048 and not i & 64][0]
-
-
-def process_edge_set(edges, all_reads, bam, insert_size, insert_stdev, get_mate=True):
-    # Grey edge means primary alignments share a similar rearrangement pattern. Therefore, the other mate-pair needs to
-    # be collected for each node (read) along each edge, make a call for each read-mate pair
-
-    break_points = []
-    seen = set([])
-    for u, v, d in edges:
-        for n, f in (u, v):  # node name, flag
-            if n in seen:
-                continue
-            seen.add(n)
-            try:
-                if f & 2048:
-                    primary1 = all_reads[n][get_pri_flag(f, n, all_reads)]
-                else:
-                    primary1 = all_reads[n][f]
-                if get_mate:
-                    mate1 = all_reads[n][get_mate_flag(primary1.flag, n, all_reads)]
-                else:
-                    mate1 = all_reads[n][f]
-            except ValueError:
-                continue  # Badly formatted flag, or unpaired
-
-            pair = sorted([primary1, mate1], key=lambda x: x.pos)
-            join = []
-            for read in pair:
-                rid = {read.qname}
-                # Sometimes a clip may be present, use this as a break point if available
-                cl = []  # Get the biggest clipped portion of the read-pair to find the break-point
-                if read.cigartuples[0][0] == 4 or read.cigartuples[0][0] == 5:  # Left clip
-                    cl.append((5, rid, bam.get_reference_name(read.rname), read.pos))
-                if read.cigartuples[-1][0] == 4 or read.cigartuples[-1][0] == 5:
-                    cl.append((3, rid, bam.get_reference_name(read.rname), read.reference_end))
-                if len(cl) > 0:
-                    join.append(sorted(cl, key=lambda x: x[1])[-1])
-                else:
-                    # Breakpoint position is beyond the end of the last read
-                    if read.flag & 16:  # Read on reverse strand guess to the left
-                        p = read.pos - (insert_size / 2) + insert_stdev
-                        t = 5
-                    else:
-                        p = read.reference_end + (insert_size / 2) - insert_stdev
-                        t = 3
-                    join.append((t, rid, bam.get_reference_name(read.rname), int(p)))
-            break_points += join
-
-    return break_points  # caller.call_break_points(break_points)
 
 
 def score_reads(read_names, all_reads):
@@ -548,15 +485,14 @@ def score_reads(read_names, all_reads):
     return data
 
 
-def construct_graph(args):
-    infile = pysam.AlignmentFile(args["sv_bam"], "rb")
+def construct_graph(args, infile, max_dist):
+
     regions = get_regions(args["include"])
 
     nodes = []
     edges = []
     all_flags = defaultdict(lambda: defaultdict(list))  # Linking clusters together rname: (flag): (chrom, pos)
 
-    max_dist = args["insert_median"] + (4 * args["insert_stdev"])
     scope = Scoper(max_dist=max_dist)
 
     count = 0
@@ -640,8 +576,9 @@ def construct_graph(args):
 
 
 def cluster_reads(args):
-
-    G = construct_graph(args)
+    infile = pysam.AlignmentFile(args["sv_bam"], "rb")
+    max_dist = args["insert_median"] + (4 * args["insert_stdev"])  # > distance then reads drop out of clustering scope
+    G = construct_graph(args, infile, max_dist)
 
     if args["output"] == "-" or args["output"] is None:
         outfile = sys.stdout
@@ -661,8 +598,11 @@ def cluster_reads(args):
             bm = make_block_model(grp, args["insert_median"], args["insert_stdev"], args["read_length"])
             bm = block_model_evidence(bm, grp)  # Annotate block model with evidence
 
+            if len(bm.nodes()) == 0:
+                continue
+
             reads = get_reads(infile, grp, max_dist, int(args['read_length']))
-            caller.call_from_block_model(bm, grp, reads)
+            caller.call_from_block_model(bm, grp, reads, infile)
             continue
 
             if bm == 1:

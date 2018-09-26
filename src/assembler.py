@@ -36,7 +36,7 @@ def update_edge(u, v, qual, G, kind, strand):
         G.add_edge(u, v)
 
 
-def base_assemble(g, reads, bam, id):
+def base_assemble(g, reads, bam, id=0):
     """
     Assembles reads that have overlaps. Uses alignment positions to determine contig construction
     :param g: The overlap graph
