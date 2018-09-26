@@ -1,5 +1,5 @@
 import pysam
-from collections import defaultdict, deque
+from collections import defaultdict, deque, Counter
 import numpy as np
 import networkx as nx
 from pybedtools import BedTool
@@ -195,7 +195,183 @@ def align_match(r, t):
     return identity, p
 
 
+def explore_local(starting_nodes, large_component, other_nodes, look_for, upper_bound):
+    """
+    Search the large component graph for additional nodes (evidence) that doesnt conflict with other nodes or the
+    upper bound on copy number. If a conflict is found, no nodes of that type are returned
+    :param starting_nodes: set of nodes in current nuclei
+    :param large_component: the larger graph to search
+    :param other_nodes: conflicting nodes already assigned to other nuclei
+    :param look_for: the types of edges to look for i.e. grey or yellow
+    :param upper_bound: an upper bound on the expected number of reads
+    :return: a set of additional nodes to safely add to the current nuclei
+    """
+    additional_nodes = {k: set([]) for k in look_for}
+    seen = set(starting_nodes)
+    if len(starting_nodes) == 0:
+        return set([])
+
+    while True:
+        nd = starting_nodes.pop()
+        seen.add(nd)
+        for edge in large_component.edges(nd, data=True):
+            if edge[2]['c'] in additional_nodes:
+                for n in (0, 1):  # Check both ends of the edge for uniqueness
+                    if edge[n] not in seen:
+                        if edge[n] in other_nodes:
+                            del additional_nodes[edge[2]['c']]  # This evidence conflicts with another source
+                            continue
+                        starting_nodes.add(edge[n])
+                        additional_nodes[edge[2]['c']].add(edge[n])
+                        if len(additional_nodes[edge[2]['c']]) > upper_bound:  # Remove this type of evidence if over upper bound
+                            del additional_nodes[edge[2]['c']]
+
+        if len(starting_nodes) == 0:
+            break
+    return set().union(*additional_nodes.values())
+
+
+def make_nuclei(g):
+    """
+    Nuclei are primaryily clusters of overlapping soft-clipped reads. If none are found in the graph, try using
+    supplementary edges, or finally grey edges only.
+    Additional nuclei are then created from yellow, or grey edges, only if they do not intersect with already defined
+    nuclei. The reason for doing this is to help seperate overlapping events, with some events having soft-clips but
+    other events having no soft-clips. If the non-soft-clipped events are not nucleated then they will be dropped.
+    :param g:
+    :return:
+    """
+    sub_grp = nx.Graph()
+    # edges = [i for i in g.edges(data=True) if i[2]["c"] == "b"]
+
+    look_for = ["y", "g"]
+    edge_colors = {k: list(v) for k, v in itertools.groupby(g.edges(data=True), key=lambda x: x[2]['c'])}
+    if "b" in edge_colors:
+        edges = edge_colors["b"]
+
+    elif "y" in edge_colors:
+        edges = edge_colors["y"]
+        look_for.remove("y")
+
+    elif "g" in edge_colors:
+        edges = edge_colors["g"]
+        look_for = []
+
+    else:
+        raise ValueError("Single read?")
+
+    # Look for other unique connected components
+    sub_grp.add_edges_from(edges)
+    new_edges = []
+    for color in look_for:
+        if color in edge_colors:
+            query_clusters = nx.Graph()
+            query_clusters.add_edges_from(edge_colors[color])
+            for cc in nx.connected_component_subgraphs(query_clusters):
+                if all(i not in sub_grp for i in cc.nodes()):  # Check for overlap with a different nuclei
+                    new_edges += list(cc.edges(data=True))
+
+    sub_grp.add_edges_from(new_edges)
+    return sub_grp
+
+
+def make_block_model(g, insert_size, insert_stdev, read_length):
+    """
+    Make a block model representation of the graph. The nodes in the block model correspond to each side of a SV. The
+    edge attributes give the different types of support between nodes i.e. number of split reads, soft-clips, pairs.
+    The block model is then analysed for SV calling, later in the pipeline.
+    The model is constructed from the overlap and paired-end input graph, using a concept of nucleation. Nuclei are
+    generated from overlapping soft-clips, or if these are lacking from the 'yellow' or 'grey' edges. Additional edges
+    are added to the nuclei if they can be uniquely assigned to that nuclei. For example, a nuclei of nodes connected
+    with black edges, nodes with grey edges are added to the nuclei if NONE of these nuclei-specific grey edges
+    are connected with a different nuclei. If a node is shared between two nuclei, this implies that kind type of
+    evidence is unreliable, such as when a very dense overlapping cluster occurs and grey edges cannot be assigned
+    uniquely.
+    This approach proceeds by first creating an 'inner' block model consisting of black edges only. Next grey edges
+    from the input graph are assigned to each node in the block-model, only if ALL of the edges can be uniquely assigned
+    to that node.
+    :param subg:
+    :return: Block model, nodes correspond to break sites, edges give connectivity information with other break sites
+    """
+    # Make the inner block-model
+    sub_grp = make_nuclei(g)
+
+    sub_grp_cc = list(nx.connected_component_subgraphs(sub_grp))
+
+    # Drop any reads that are'nt in a connected component
+    intersection = g.subgraph(sub_grp.nodes())
+    inner_model = nx.algorithms.minors.quotient_graph(intersection, partition=[i.nodes() for i in sub_grp_cc])
+
+    # Each node in the inner_model is actually a set of nodes.
+    # For each node in the model, explore the input graph for new edges
+
+    all_node_sets = set(inner_model.nodes())
+    updated = True
+    updated_partitons = []
+    for node_set in inner_model.nodes():
+
+        other_nodes = set([item for sublist in list(all_node_sets.difference(set([node_set]))) for item in sublist])
+
+        # Expected local nodes
+        # Read clouds uncover variation in complex regions of the human genome. Bishara et al 2016.
+        # max template size * estimated coverage / read_length; 2 just to increase the upper bound a bit
+        local_upper_bound = ((insert_size + (2 * insert_stdev)) * float(2 + len(node_set))) / float(read_length)
+        additional_nodes = explore_local(set(node_set), g, other_nodes, ["y", "g"], local_upper_bound)
+        if len(additional_nodes) > 0:  # If any new nodes are found
+            updated = True
+        updated_partitons.append(set(node_set).union(additional_nodes))
+
+    if updated:  # Re-partition the graph
+        intersection = g.subgraph([item for sublist in updated_partitons for item in sublist])
+        inner_model = nx.algorithms.minors.quotient_graph(intersection, partition=updated_partitons)
+
+    return inner_model
+
+
+def block_model_evidence(bm, parent_graph):
+    """
+    Quantify the level of support over each edge in the block model
+    :param bm: input block model
+    :return: annotated block model, edge attributes give evidence support
+    """
+    # Go through block model nodes and annotate edges
+    seen = set([])
+
+    for node_set in bm.nodes():
+        if node_set in seen:
+            continue
+        seen.add(node_set)
+        read_names_a = set([i[0] for i in node_set])
+
+        for neighbor_set in bm[node_set]:
+            read_names_b = set([i[0] for i in neighbor_set])
+
+            total_reads = len(node_set) + len(neighbor_set)
+            pe_support = len(read_names_a.intersection(read_names_b))
+
+            # Reads connected with black edges give soft-clip support at each side
+            sub = parent_graph.subgraph(node_set.union(neighbor_set))
+            black_connected = [(j[0], j[1]) for j in [i for i in sub.edges(data=True) if i[2]['c'] == 'b']]
+            black_nodes = len(set(item for sublist in black_connected for item in sublist))
+            supplementary = len([i[1] for i in sub.nodes() if i[1] & 2048])
+
+            res = {"total_reads": total_reads,
+                   "pe": pe_support,
+                   "sc": black_nodes,
+                   "supp": supplementary}
+            bm[node_set][neighbor_set]["result"] = res
+            seen.add(neighbor_set)
+    return bm
+
+
+
 def get_reads(infile, sub_graph, max_dist, rl):
+    """Using infile, collect reads belonging to sub_graph.
+    :param infile: the input file
+    :param sub_graph: the subgraph of interest, nodes are reads to collect
+    :param max_dist: used to define an interval around reads of interest; this interval is then searched using pysam
+    :param rl: the read length
+    :returns read dictionary, u nodes, v nodes, edge data"""
     nodes_u, nodes_v, edge_data = zip(*sub_graph.edges(data=True))
     nodes = set(nodes_u).union(set(nodes_v))
     coords = []
@@ -226,7 +402,7 @@ def get_reads(infile, sub_graph, max_dist, rl):
                     c += 1
     # assert(c == len(nodes))  #!
     if c != len(nodes):
-        click.echo("WARNING: reads missing {} vs {}".format(c, len(nodes)), err=True)
+        click.echo("WARNING: reads missing from collection - {} vs {}".format(c, len(nodes)), err=True)
 
     return rd, nodes_u, nodes_v, edge_data
 
@@ -377,22 +553,14 @@ def score_reads(read_names, all_reads):
     return data
 
 
-def cluster_reads(args):
-
-    # Read data into a graph
-    # Link reads that share an overlapping soft-clip
-    # Weak-link reads that are within ~500bb and have same rearrangement pattern
-    # Link read-pairs
-    # Link supplementary reads to primary reads that have a soft-clip for checking primary-primary overlap
-    # Use a scope to weak-link reads
-
+def construct_graph(args):
     infile = pysam.AlignmentFile(args["sv_bam"], "rb")
     regions = get_regions(args["include"])
 
     edges = []
     all_flags = defaultdict(lambda: defaultdict(list))  # Linking clusters together rname: (flag): (chrom, pos)
 
-    max_dist = args["insert_median"]+(4*args["insert_stdev"])
+    max_dist = args["insert_median"] + (4 * args["insert_stdev"])
     scope = Scoper(max_dist=max_dist)
 
     count = 0
@@ -408,7 +576,7 @@ def cluster_reads(args):
         # Limit to regions
         if regions:
             rname = infile.get_reference_name(r.rname)
-            if rname not in regions or len(regions[rname].search(r.pos, r.pos+1)) == 0:
+            if rname not in regions or len(regions[rname].search(r.pos, r.pos + 1)) == 0:
                 continue
 
         scope.update(r)  # Add alignment to scope
@@ -463,10 +631,16 @@ def cluster_reads(args):
 
                 # Only add an edge if either u or v is missing, not if both (or neither) missing
                 if has_u != has_v:  # XOR
-                   new_edges.append((u, v, {"p": list(set(all_flags[n][f1] + all_flags[n][f2])),  "c": "w"}))
+                    new_edges.append((u, v, {"p": list(set(all_flags[n][f1] + all_flags[n][f2])), "c": "w"}))
 
     # Regroup based on white edges (link together read-pairs)
     G.add_edges_from(new_edges)
+    return G
+
+
+def cluster_reads(args):
+
+    G = construct_graph(args)
 
     if args["output"] == "-" or args["output"] is None:
         outfile = sys.stdout
@@ -482,7 +656,17 @@ def cluster_reads(args):
         c = 0
 
         for grp in nx.connected_component_subgraphs(G):  # Get large components, possibly multiple events
-            reads, nodes_u, nodes_v, edge_data = get_reads(infile, grp, max_dist, rl=int(args['read_length']))
+
+            bm = make_block_model(grp, args["insert_median"], args["insert_stdev"], args["read_length"])
+
+            bm = block_model_evidence(bm, grp)  # Annotate block model with evidence
+            continue
+
+            if bm == 1:
+                continue
+            quit()
+            continue
+            reads, nodes_u, nodes_v, edge_data = get_reads(infile, grp, max_dist, int(args['read_length']))
 
             events = assembler.merge_assemble(grp, reads, infile, args["clip_length"], args["insert_median"],
                                               args["insert_stdev"], args["read_length"])

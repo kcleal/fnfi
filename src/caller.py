@@ -156,3 +156,7 @@ def call_to_string(call_info):
 
     return "\t".join([str(call_info[ky]) if ky in call_info else "NA" for ky in k]) + "\n"
 
+
+
+def call_from_block_model(bm, parent_graph):
+    pass
