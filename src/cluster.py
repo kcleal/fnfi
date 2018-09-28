@@ -242,7 +242,10 @@ def make_nuclei(g):
     """
     sub_grp = nx.Graph()
     look_for = ["y", "g"]
-    edge_colors = {k: list(v) for k, v in itertools.groupby(g.edges(data=True), key=lambda x: x[2]['c'])}
+    edge_colors = defaultdict(list)
+    for e in g.edges(data=True):
+        edge_colors[e[2]['c']].append(e)
+
     edges = []
     if "b" in edge_colors:
         edges = edge_colors["b"]
@@ -267,7 +270,96 @@ def make_nuclei(g):
                     new_edges += list(cc.edges(data=True))
 
     sub_grp.add_edges_from(new_edges)
+
     return sub_grp
+
+
+def blockmodel(G, partitions):
+    """Stolen from NetworkX 1.9. Returns a reduced graph constructed using the generalized block modeling
+    technique. Faster than the quotient graph method, but not by much.
+
+    The blockmodel technique collapses nodes into blocks based on a
+    given partitioning of the node set.  Each partition of nodes
+    (block) is represented as a single node in the reduced graph.
+
+    Edges between nodes in the block graph are added according to the
+    edges in the original graph.  If the parameter multigraph is False
+    (the default) a single edge is added with a weight equal to the
+    sum of the edge weights between nodes in the original graph
+    The default is a weight of 1 if weights are not specified.  If the
+    parameter multigraph is True then multiple edges are added each
+    with the edge data from the original graph.
+
+    Parameters
+    ----------
+    G : graph
+        A networkx Graph or DiGraph
+    partitions : list of lists, or list of sets
+        The partition of the nodes.  Must be non-overlapping.
+    multigraph : bool, optional
+        If True return a MultiGraph with the edge data of the original
+        graph applied to each corresponding edge in the new graph.
+        If False return a Graph with the sum of the edge weights, or a
+        count of the edges if the original graph is unweighted.
+
+    Returns
+    -------
+    blockmodel : a Networkx graph object
+
+    Examples
+    --------
+    >>> G=nx.path_graph(6)
+    >>> partition=[[0,1],[2,3],[4,5]]
+    >>> M=nx.blockmodel(G,partition)
+
+    References
+    ----------
+    .. [1] Patrick Doreian, Vladimir Batagelj, and Anuska Ferligoj
+    	"Generalized Blockmodeling",Cambridge University Press, 2004.
+    """
+    # Create sets of node partitions, frozenset makes them hashable
+    part = list(map(frozenset, partitions))
+
+    # Check for overlapping node partitions
+    u = set()
+    for p1, p2 in zip(part[:-1], part[1:]):
+        u.update(p1)
+        # if not u.isdisjoint(p2):  # Python 2.6 required
+        if len(u.intersection(p2)) > 0:
+            raise nx.NetworkXException("Overlapping node partitions.")
+
+    # Initialize blockmodel graph
+    M = nx.Graph()
+
+    # Add nodes and properties to blockmodel
+    # The blockmodel nodes are node-induced subgraphs of G
+    # Label them with integers starting at 0
+    for i, p in zip(range(len(part)), part):
+        M.add_node(p)
+        # The node-induced subgraph is stored as the node 'graph' attribute
+        SG = G.subgraph(p)
+        M.node[p]['graph'] = SG
+
+    # Create mapping between original node labels and new blockmodel node labels
+    block_mapping = {}
+    for n in M:
+        nodes_in_block = M.node[n]['graph'].nodes()
+        block_mapping.update(dict.fromkeys(nodes_in_block, n))
+
+    # Add edges to block graph
+    for u, v, d in G.edges(data=True):
+        bmu = block_mapping[u]
+        bmv = block_mapping[v]
+        if bmu == bmv:  # no self loops
+            continue
+
+        # For graphs and digraphs add single weighted edge
+        weight = d.get('weight', 1.0)  # default to 1 if no weight specified
+        if M.has_edge(bmu, bmv):
+            M[bmu][bmv]['weight'] += weight
+        else:
+            M.add_edge(bmu, bmv, weight=weight)
+    return M
 
 
 def make_block_model(g, insert_size, insert_stdev, read_length):
@@ -295,10 +387,12 @@ def make_block_model(g, insert_size, insert_stdev, read_length):
 
     # Drop any reads that are'nt in a connected component
     intersection = g.subgraph(sub_grp.nodes())
-    inner_model = nx.algorithms.minors.quotient_graph(intersection, partition=[i.nodes() for i in sub_grp_cc])
+
+    inner_model = blockmodel(intersection, partitions=[i.nodes() for i in sub_grp_cc])
 
     # Each node in the inner_model is actually a set of nodes.
     # For each node in the model, explore the input graph for new edges
+    # return inner_model
 
     all_node_sets = set(inner_model.nodes())
     updated = True
@@ -318,7 +412,7 @@ def make_block_model(g, insert_size, insert_stdev, read_length):
 
     if updated:  # Re-partition the graph
         intersection = g.subgraph([item for sublist in updated_partitons for item in sublist])
-        inner_model = nx.algorithms.minors.quotient_graph(intersection, partition=updated_partitons)
+        inner_model = blockmodel(intersection, partitions=updated_partitons)
 
     return inner_model
 
@@ -390,99 +484,14 @@ def get_reads(infile, sub_graph, max_dist, rl):
         for chrom, start, end in m:
             for aln in infile.fetch(chrom, 1 if start <= 0 else start, end):
                 if (aln.qname, aln.flag) in sub_graph:
-                    rd[aln.qname][aln.flag] = aln
-                    c += 1
+                    if aln.flag is not None:
+                        rd[aln.qname][aln.flag] = aln
+                        c += 1
     # assert(c == len(nodes))  #!
     if c != len(sub_graph.nodes()):
         click.echo("WARNING: reads missing from collection - {} vs {}".format(c, len(sub_graph.nodes())), err=True)
 
     return rd
-
-
-def max_kmer(reads, k=27):
-    kmers = defaultdict(int)
-    for s in (i.seq for i in reads if not i.flag & 2048):  # Skip supplementary
-        if s:
-            for j in [s[i:i+k] for i in range(len(s) - k)]:
-                kmers[j] += 1
-    if len(kmers) > 0:
-        return max(kmers.values())
-    return 0
-
-
-def merge_intervals(intervals):
-    # thanks https://codereview.stackexchange.com/questions/69242/merging-overlapping-intervals
-    sorted_by_lower_bound = sorted(intervals, key=lambda tup: tup[0])
-    merged = []
-    for higher in sorted_by_lower_bound:
-        if not merged:
-            merged.append(higher)
-        else:
-            lower = merged[-1]
-            # test for intersection between lower and higher:
-            # we know via sorting that lower[0] <= higher[0]
-            if higher[0] <= lower[1]:
-                upper_bound = max(lower[1], higher[1])
-                merged[-1] = (lower[0], upper_bound)  # replace by merged interval
-            else:
-                merged.append(higher)
-    return merged
-
-
-def count_soft_clip_stacks(reads):
-    blocks = []
-    for r in reads:  # (i for i in reads if not i.flag & 2048):  # Skip supp
-        cigar = r.cigartuples
-        if cigar:
-            if (cigar[0][0] == 4 and cigar[0][1] > 20) or (cigar[-1][0] == 4 and cigar[-1][1] > 20):
-                blocks.append((r.pos, r.reference_end))
-    mi = merge_intervals(blocks)
-    return len(mi)
-
-
-
-
-
-def score_reads(read_names, all_reads):
-    if len(read_names) == 0:
-        return {}
-
-    pri, sup = [], []
-    for name, flag in read_names:
-        for flag in all_reads[name]:
-            read = all_reads[name][flag]
-            if not read.flag & 2048:
-                pri.append(read)
-            else:
-                sup.append(read)
-
-    data = {"Full_call": True}
-    data["max_k_coverage"] = max_kmer(pri + sup)
-    data["soct_clip_stacks"] = count_soft_clip_stacks(pri + sup)
-
-    tags_primary = [dict(j.tags) for j in pri]
-    tags_supp = [dict(j.tags) for j in sup]
-
-    for item in ["DP", "DA", "NM", "DN", "AS"]:
-        v = np.array([i[item] for i in tags_primary]).astype(float)
-        if len(v) > 0:
-            data[item + "pri"] = v.mean()
-        else:
-            echo("WARNING: {} tag missing", item)
-    data["SP" + "pri"] = len([1 for i in tags_primary if int(i["SP"]) == 1]) / 2.  # Number of split pairs
-
-    for item in ["EV", "DA", "NM", "NP", "AS"]:  # EV depends on mapper used
-        if len(tags_supp) == 0:
-            data[item] = None
-        else:
-            if item == "EV" and "EV" in tags_supp[0]:
-                data[item + "sup"] = np.array([i[item] for i in tags_supp]).astype(float).min()   # Minimum E-value
-            elif item != "EV":
-                data[item + "sup"] = np.array([i[item] for i in tags_supp]).astype(float).mean()  # Mean
-            else:
-                data[item + "sup"] = None
-
-    return data
 
 
 def construct_graph(args, infile, max_dist):
@@ -503,7 +512,6 @@ def construct_graph(args, infile, max_dist):
         count += 1
 
         n1 = (r.qname, r.flag)
-
         nodes.append((n1, {"p": (r.rname, r.pos)}))
         all_flags[r.qname][r.flag].append((r.rname, r.pos))
 
@@ -528,11 +536,12 @@ def construct_graph(args, infile, max_dist):
             # rearrangement with start and end co-ords on reference genome. Yellow means supplementary matches a primary
             # read; these edges need to be checked when both primary reads are available, change to black edge or delete
             # Finally white edge means a read1 to read2 edge
+            e = None
             if ol and not sup_edge:
                 identity, prob_same = align_match(r, t)
 
                 if prob_same > 0.01:  # Add a black edge
-                    edges.append((n1, n2, {"c": "b"}))  # "p": [(r.rname, r.pos), (t.rname, t.pos)],
+                    e = (n1, n2, {"c": "b"})  # "p": [(r.rname, r.pos), (t.rname, t.pos)],
 
             elif not ol and not sup_edge:
                 # Make sure both are discordant, mapped to same chromosome
@@ -540,14 +549,16 @@ def construct_graph(args, infile, max_dist):
                     continue
                 if abs(r.pnext - t.pnext) < max_dist:
                     # Add a grey edge
-                    edges.append((n1, n2, {"c": "g"}))
+                    e = (n1, n2, {"c": "g"})
                     grey_added += 1
                     if grey_added > 60:
                         break  # Stop the graph getting unnecessarily dense
 
             elif sup_edge:
                 # Add a yellow edge
-                edges.append((n1, n2, {"c": "y"}))
+                e = (n1, n2, {"c": "y"})
+            if e:
+                edges.append(e)
 
     # Add read-pair information to the graph, link regions together
     G = nx.Graph()
@@ -586,9 +597,9 @@ def cluster_reads(args):
         outfile = open(args["output"], "w")
 
     with outfile:
-        head = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "nreads", "cipos95A", "cipos95B", "max_k_coverage",
-         "Full_call", "soct_clip_stacks", "DPpri", "DApri", "DNpri", "NMpri", "SPpri", "ASpri", "EVsup", "DAsup",
-         "NMsup", "ASsup", "best_sc", "contig"]
+        head = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "total_reads", "cipos95A", "cipos95B"
+         "DP", "DApri", "DN", "NMpri", "SP", "EVsup", "DAsup",
+         "NMsup", "maxASsup", "contig", "pe", "sup", "sc", "block_edge", "MAPQpri", "MAPQsup"]
 
         outfile.write("\t".join(head) + "\n")
         c = 0
@@ -596,61 +607,16 @@ def cluster_reads(args):
         for grp in nx.connected_component_subgraphs(G):  # Get large components, possibly multiple events
 
             bm = make_block_model(grp, args["insert_median"], args["insert_stdev"], args["read_length"])
-            bm = block_model_evidence(bm, grp)  # Annotate block model with evidence
-
             if len(bm.nodes()) == 0:
                 continue
 
+            bm = block_model_evidence(bm, grp)  # Annotate block model with evidence
+
             reads = get_reads(infile, grp, max_dist, int(args['read_length']))
-            caller.call_from_block_model(bm, grp, reads, infile)
-            continue
 
-            if bm == 1:
-                continue
-            quit()
-            continue
+            for event in caller.call_from_block_model(bm, grp, reads, infile, args["clip_length"], args["insert_median"],
+                                         args["insert_stdev"]):
+                if event:
+                    outfile.write(event)
+                    c += 1
 
-
-            events = assembler.merge_assemble(grp, reads, infile, args["clip_length"], args["insert_median"],
-                                              args["insert_stdev"], args["read_length"])
-
-            edges = grp.edges(data=True)
-            edge_colors = {k: list(v) for k, v in itertools.groupby(edges, key=lambda x: x[2]['c'])}
-
-            if len(events) == 0:
-                # No assembly or linkage, look elsewhere
-                echo("No assembly")
-                continue
-
-            echo("Number of events in c {}".format(len(events)))
-            for event_info, breakpoint_tuple in events:
-                if len(breakpoint_tuple) == 1:
-                    # Unlinked sub-cluster, partly assembled
-                    echo("Unlinked")
-
-                    if event_info['ref_start']==16891859:
-                        echo(breakpoint_tuple)
-                        echo(event_info)
-
-                    echo("")
-                elif len(breakpoint_tuple) == 2:
-                    # Linked
-
-                    echo("Linked")
-                    if event_info['ref_start']==16891859 or event_info['ref_start'] == 16891936:
-                        echo(breakpoint_tuple)
-                        echo(event_info)
-                    echo("")
-                    # Make a call using the linked contigs as the base
-                    call_info, contributing_reads = caller.call_break_points(breakpoint_tuple)
-                    event_info.update(call_info)
-                    # Get tag information for the supporting reads
-                    event_info.update(score_reads(contributing_reads, reads))
-
-                    outfile.write(caller.call_to_string(event_info))
-                else:
-                    raise ValueError("Too many sides to event")
-
-                c += 1
-
-        echo("Events called: {}".format(c))

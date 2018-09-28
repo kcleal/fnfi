@@ -41,7 +41,7 @@ def cli():
 def run_command(ctx, **kwargs):
     """Run the fusion-finder pipeline."""
     t0 = time.time()
-
+    click.echo("Running fufi pipeline", err=True)
     if not os.path.exists(kwargs["bam"] + ".bai"):
         raise IOError("Input .bai index file not found.")
     mk_dest(kwargs["dest"])

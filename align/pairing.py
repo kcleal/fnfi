@@ -271,11 +271,11 @@ def process(rt):
     mu, sigma = rt['isize']
 
     max_insertion = 100
-    min_aln = 20
+    min_aln = 17
     max_homology = 100
-    ins_cost = 0.9
-    hom_cost = 1.3
-    inter_cost = 9
+    ins_cost = 1
+    hom_cost = 2
+    inter_cost = 10
     U = 9
     match_score = 1
 

@@ -207,15 +207,56 @@ def explore_local(starting_nodes, large_component, color, upper_bound):
     return found
 
 
-def get_tuple(j):
-    # Need (3 or 5 join, soft-clip length, chromosome, break point position)
-    return (5 if j["left_clips"] > j["right_clips"] else 3,
-            j["read_names"],
-            j["bamrname"],
-            j["ref_start"] if j["left_clips"] > j["right_clips"] else j["ref_end"])
+def link_pair_of_assemblies(a, b, clip_length):
+    seqs = []
+    for i in (a, b):
+        left_clipped = False
+        negative_strand = True if i["strand_r"] < 0 else False
+        sc_support = i["right_clips"]
+        qual = int(i["qual_r"])
+        if i["left_clips"] > i["right_clips"]:
+            left_clipped = True
+            negative_strand = True if i["strand_l"] < 0 else False
+            sc_support = i["left_clips"]
+            qual = int(i["qual_l"])
+        seqs.append((i["contig"], sc_support, i["bamrname"], i["ref_start"], i["ref_end"] + 1, left_clipped,
+                     negative_strand, qual))
+
+    ainfo, binfo = seqs
+    aseq, bseq = ainfo[0], binfo[0]
+    if ainfo[2] == binfo[2]:  # If seqs are on the same chrom
+        if ainfo[5] == binfo[5]:  # If clips are on same side, rev comp one of them
+            bseq = rev_comp(bseq)
+    else:
+        if ainfo[6]:  # negative strand
+            aseq = rev_comp(aseq)
+        if binfo[6]:
+            bseq = rev_comp(bseq)
+
+    # See https://docs.python.org/2/library/difflib.html
+    m = difflib.SequenceMatcher(a=aseq.upper(), b=bseq.upper(), autojunk=None)
+    longest = m.find_longest_match(0, len(aseq), 0, len(bseq))
+
+    a_align = [i.islower() for i in aseq[longest[0]:longest[0] + longest[2]]]
+    b_align = [i.islower() for i in bseq[longest[1]:longest[1] + longest[2]]]
+
+    sc_a = sum(a_align)
+    sc_b = sum(b_align)
+    # non_sc_a = len(a_align) - sc_a
+    # non_sc_b = len(b_align) - sc_b
+
+    best_sc = max([sc_a, sc_b])
+    # best_non_sc = max([non_sc_a, non_sc_b])
+    a["linked"] = "weak link"
+    a["best_sc"] = best_sc
+    if best_sc > clip_length:  # and best_non_sc >= 5:
+        a["linked"] = "strong link"
+
+    return a, b
 
 
-def linkup(assem, clip_length, large_component, insert_size, insert_stdev, read_length):
+
+def linkup_old(assem, clip_length, large_component, insert_size, insert_stdev, read_length):
     """
     Takes assembled clusters and tries to link them together based on the number of spanning reads between clusters
     :param assem: A list of assembled clusters, each is a results dict
