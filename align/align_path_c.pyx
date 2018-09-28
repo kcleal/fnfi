@@ -23,12 +23,6 @@ ctypedef np.float_t DTYPE_t
 cdef erfcc(float x):
     """Complementary error function."""
     cdef float z, t, r, p1, p2, p3, p4, p5, p6, p7, p8, p9
-
-    #with nogil:
-    # if x > 0:
-    #     z = x
-    # else:
-    #     z = -1*x
     z = abs(x)
     t = (1. / (1. + 0.5*z))
     p1 = -.82215223+t*.17087277
@@ -92,7 +86,6 @@ cdef bwa_pair_score(float pos1, float pos2, float strand1, float strand2, float 
     # bwa is [-match_score * math.log(prob, 4), 9]
     return c, proper_pair
 
-# double [:,:] segments not None,
 
 def optimal_path(
                  np.ndarray[DTYPE_t, ndim=2] segments,
@@ -127,13 +120,6 @@ def optimal_path(
     # Start at first node then start another loop running backwards through the preceeding nodes.
     # Choose the best score out of the in edges.
     # Use a special start and end node to score the first and last alignments
-    # cdef array.array int_array_template = array.array('i', [])
-    # cdef array.array float_array_template = array.array('f', [])
-    #
-    # pred = array.clone(int_array_template, len(segments), zero=True)
-    # node_scores = array.clone(float_array_template, len(segments), zero=True)
-    # nb_node_scores = array.clone(float_array_template, len(segments), zero=True)
-    # end_cost = array.clone(float_array_template, len(segments), zero=True)
 
     cdef np.ndarray[np.int_t, ndim=1] pred = np.zeros(segments.shape[0], dtype=np.int)
     cdef np.ndarray[np.float_t, ndim=1] node_scores = np.zeros(segments.shape[0], dtype=np.float)
@@ -148,17 +134,12 @@ def optimal_path(
                micro_h, ins, best_score, next_best_score, best_normal_orientation, current_score, total_cost,\
                S, sc, max_s, path_score, cst, jump_cost, normal_score
 
-    #with nogil:
     # Deal with first score
     for i in range(segments.shape[0]):
         node_scores[i] = segments[i, 4] - (segments[i, 2] * ins_cost)
     pred[0] = -1
 
     nb_node_scores.fill(-1e6)  # Must set to large negative, otherwise a value of zero can imply a path to that node
-
-    #node_scores[segments.shape[0]] = - (contig_length * ins_cost)
-    #pred[segments.shape[0]] = -1
-
 
     best_score = 0  # Declare here in case only 1 alignment
     next_best_score = 0
@@ -178,7 +159,6 @@ def optimal_path(
         p = -1  # -1 means there is no presecessor
         best_score = score1 - (start1 * ins_cost)  # Implies all preceding alignments skipped!
         next_best_score = - (start1 * ins_cost)  # Worst case
-
 
         # Walking backwards mean the search may be terminated at some point
         for j in range(i-1, -1, -1):
@@ -246,7 +226,6 @@ def optimal_path(
         pred[i] = p
         nb_node_scores[i] = next_best_score
 
-
     # Update the score for jumping to the end of the sequence
     # Basically calculates what the best and secondary scores are for the 'virtual' end node
     cdef float node_to_end_cost
@@ -265,38 +244,11 @@ def optimal_path(
         elif node_to_end_cost > secondary:
             secondary = node_to_end_cost
 
-
-    #cdef np.ndarray[np.float_t, ndim=1] dist_to_end = np.zeros(segments.shape[0] + 1, dtype=np.float)
-
     # Need to check if any branches from main path have a higher secondary than the 'virtual' end node
     # This can happen if the secondary path joins the main path within the graph, rather than at the end node.
 
     cdef float dis_2_end = 0  # Can be negative if the last node has an insertion before the end (soft-clip)
     cdef float s, potential_secondary
-
-    #OLD code using python lists
-    # indexes = []
-    # if end_i != -1:
-    #     indexes.append(end_i)
-    #
-    #     while True:
-    #         # Use len(indexes) - 1 to get around wraparound constraint
-    #         next_i = pred[indexes[len(indexes) - 1]]
-    #         if next_i == -1:
-    #             break
-    #         indexes.append(next_i)
-    #
-    #         s = nb_node_scores[next_i]
-    #         dis_2_end = path_score - node_scores[next_i]  # Distance of main path to the end
-    #         potential_secondary = dis_2_end + s
-    #
-    #         if potential_secondary > secondary:
-    #             secondary = potential_secondary
-    #
-    # return segments[indexes[::-1], 5], path_score, secondary
-
-
-
 
     # Use STL vector instead of list for possible speedup. Doesnt compile using pyximport in pairing script
     cdef vector[int] v

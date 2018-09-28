@@ -4,7 +4,6 @@ Iterate over the output from last and send data object back to the pair_reads_fr
 
 import numpy as np
 from align import samclips
-#import calculate_bowtie2_mapq
 import re
 import quicksect
 import click

@@ -1,8 +1,6 @@
 from align import data_io
 from align import pairing
 import multiprocessing
-import time
-import os
 from threading import Thread
 try:
     from StringIO import StringIO
@@ -10,7 +8,6 @@ try:
 except ImportError:
     from io import StringIO  # Python 2
     from queue import Queue
-import sys
 import click
 
 # Todo Fix sam flags, some are flagged in wrong orientation sometimes

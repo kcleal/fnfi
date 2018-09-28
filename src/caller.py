@@ -315,7 +315,7 @@ def score_reads(read_names, all_reads):
 
 def call_to_string(call_info):
     # Tab delimited string, in a bedpe style
-    k = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "total_reads", "cipos95A", "cipos95B"
+    k = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "total_reads", "cipos95A", "cipos95B",
          "DP", "DApri", "DN", "NMpri", "SP", "EVsup", "DAsup",
          "NMsup", "maxASsup", "contig", "pe", "sup", "sc", "block_edge", "MAPQpri", "MAPQsup"]
 
@@ -360,7 +360,8 @@ def one_edge(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev)
     ns = list(bm.nodes())
     as1 = assemblies[ns[0]]
     as2 = assemblies[ns[1]]
-
+    if not as1 or not as2:
+        return None
     if len(as1) > 0 and len(as2) > 0:
         as1, as2 = assembler.link_pair_of_assemblies(as1, as2, clip_length)
 
@@ -375,6 +376,8 @@ def one_edge(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev)
         tuple_b = breaks_from_one_side(ns[1], reads, bam, insert_size, insert_stdev)
 
     info, contrib_reads = call_break_points(tuple_a, tuple_b)
+    if "result" not in bm[ns[0]][ns[1]]:
+        return None
     info.update(bm[ns[0]][ns[1]]["result"])
     info.update(score_reads(ns[0].union(ns[1]), reads))
     info["block_edge"] = 1

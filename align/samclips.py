@@ -1,4 +1,5 @@
 """
+Utils to generate proper sam output and flag information
 """
 
 import re
@@ -303,4 +304,3 @@ def fixsam(template):
             pass
 
     return [i[1] for i in out if i[1] is not None]
-
