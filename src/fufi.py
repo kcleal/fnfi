@@ -9,6 +9,7 @@ import datetime
 
 cpu_range = click.IntRange(min=1, max=cpu_count())
 
+
 def mk_dest(d):
     if d is not None and not os.path.exists(d):
         try:
@@ -52,6 +53,7 @@ def run_command(ctx, **kwargs):
 
     process, used_procs, remaining_procs = launch_external_mapper(kwargs)
     kwargs["procs"] = remaining_procs
+
     ctx.invoke(fufi_aligner, sam=process.stdout, output=kwargs["out_pfix"] + ".sam", **kwargs)
     process.kill()
     os.remove(kwargs["out_pfix"] + ".fq")
@@ -125,7 +127,7 @@ def launch_external_mapper(kwargs):
 @click.option("--insert-stdev",  help="Template standard-deviation", default=100, type=float)
 @click.option("--read-length",  help="Length of a read in base-pairs", default=100, type=float)
 @click.option("-p", "--procs", help="Processors to use", type=cpu_range, default=1)
-@click.option('--elevate', help=".bed file, elevate alignment scores in these regions. Determined by '--bias'",
+@click.option('--include', help=".bed file, elevate alignment scores in these regions. Determined by '--bias'",
               default=None, type=click.Path(exists=True))
 @click.option("--bias", help="""Multiply match score by bias if alignment falls within regions .bed file.
 Unused if .bed not provided.""", default=1.15, type=float)
@@ -133,8 +135,10 @@ def fufi_aligner(**kwargs):
     """Choose an optimal set of alignments from from a collection of candidate alignments.
     If reads are paired, alignments must be sorted by read-name while the bit flag
     designates read 1 vs read 2."""
-    if not kwargs["elevate"]:
+    if not kwargs["include"]:
         kwargs["bias"] = 1.0
+    else:
+        click.echo("Elevating alignments in --include with --bias {}".format(kwargs["bias"]), err=True)
     input_stream_alignments.process_reads(kwargs)
 
 
