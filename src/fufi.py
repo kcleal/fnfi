@@ -18,6 +18,8 @@ def mk_dest(d):
             raise OSError("Couldn't create directory")
 
 # ----------------------------------------------------------------------------------------------------------------------
+
+
 @click.group(chain=False, invoke_without_command=False)
 def cli():
     """Fusion-finder calls structural variants from input .bam or .fastq files."""
@@ -26,15 +28,20 @@ def cli():
 
 # ----------------------------------------------------------------------------------------------------------------------
 @cli.command("run")
-@click.argument('reference', required=True, type=click.Path(exists=True))
+@click.argument('reference', required=True, type=click.Path(exists=False))
 @click.argument("bam", required=True, type=click.Path(exists=True))
-@click.option('--include', help=".bed file, limit calls to regions.", default=None, type=click.Path(exists=True))
-@click.option('--search', help=".bed file, limit search to regions.", default=None, type=click.Path(exists=True))
+@click.option('--include', help=".bed file, limit calls to regions", default=None, type=click.Path(exists=True))
+@click.option('--search', help=".bed file, limit search to regions", default=None, type=click.Path(exists=True))
 @click.option('--exclude', help=".bed file, do not search/call SVs within regions. Overrides include/search",
               default=None, type=click.Path(exists=True))
-@click.option('--clip-length', help="Minimum soft-clip length; >= threshold are kept.", default=21, type=int,
+@click.option('--clip-length', help="Minimum soft-clip length; >= threshold are kept", default=21, type=int,
               show_default=True)
-@click.option('--map-script', help="""External shell script for mappping interleaved fastq file. Default is to use a bwa mem. Script must take positional arguments as: $1 reference genome; $2 .fastq file - must be interleaved if paired-end, otherwise single end reads are assumed; $3 threads to use.""", default=None, type=click.Path(exists=True))
+@click.option('--mapper', help="External mapper to use for re-alignment", default="bwamem",
+              type=click.Choice(['bwamem', 'last']), show_default=True)
+@click.option('--map-script', help="""External shell script for mappping fastq files. \
+Overrides --mapper argument. Script must take positional arguments as: $1 reference genome; \
+$2 read1.fastq file $3 read2.fastq if paired-end \
+$4 threads to use""", default=None, type=click.Path(exists=True))
 @click.option("-p", "--procs", help="Processors to use", type=cpu_range, default=1, show_default=True)
 @click.option('--dest', help="Destination folder to use/create for saving results. Defaults to directory of input bam",
               default=None, type=click.Path())
@@ -53,15 +60,21 @@ def run_command(ctx, **kwargs):
 
     process, used_procs, remaining_procs = launch_external_mapper(kwargs)
     kwargs["procs"] = remaining_procs
+    kwargs["fq1"] = kwargs["out_pfix"] + "1.fq"
+    kwargs["fq2"] = kwargs["out_pfix"] + "2.fq"
 
     ctx.invoke(fufi_aligner, sam=process.stdout, output=kwargs["out_pfix"] + ".sam", **kwargs)
     process.kill()
-    os.remove(kwargs["out_pfix"] + ".fq")
+    # Clean up
+    os.remove(kwargs["fq1"])
+    os.remove(kwargs["fq2"])
+    if kwargs["mapper"] == "last":
+        os.remove(kwargs["out_pfix"] + ".dict")
 
     if not single:
         kwargs["procs"] = remaining_procs + used_procs
     sort_and_index(kwargs)
-
+    quit()
     ctx.forward(call_events, raw_bam=kwargs["bam"], sv_bam=kwargs["out_pfix"] + ".srt.bam", **kwargs)
 
     click.echo("fufi run completed in {} h:m:s\n".format(str(datetime.timedelta(seconds=int(time.time() - t0)))),
@@ -72,7 +85,7 @@ def run_command(ctx, **kwargs):
 @cli.command("find-reads")
 @click.argument('bam', required=True, type=click.Path(exists=True))
 @click.option('--post-fix', help="Post fix to tag temp files with. Default is to use 'fufi'", default='fufi', type=str)
-@click.option('--clip-length', help="Minimum soft-clip length; >= threshold are kept.", default=21, type=int,
+@click.option('--clip-length', help="Minimum soft-clip length; >= threshold are kept", default=21, type=int,
               show_default=True)
 @click.option("-p", "--procs", help="Processors to use", type=cpu_range, default=1, show_default=True)
 @click.option('--search', help=".bed file, limit search to regions.", default=None, type=click.Path(exists=True))
@@ -101,21 +114,29 @@ def launch_external_mapper(kwargs):
         p = kwargs["procs"]
         other_p = 1
 
-    if not kwargs["map_script"]:
-        command = "bwa mem -t {procs} -P -a -p {ref} {s}".format(script=kwargs["map_script"],
-                                                                 procs=p,
-                                                                 ref=kwargs["reference"],
-                                                                 cwd=os.getcwd(),
-                                                                 s=kwargs["fastq"])
+    if not kwargs["map_script"] and kwargs["mapper"] == "bwamem":
+        command = "bwa mem -t {procs} -P -a {ref} {s}1.fq {s}2.fq".format(procs=p,
+                                                                             ref=kwargs["reference"],
+                                                                             s=kwargs["fastq"])
+
+    elif not kwargs["map_script"] and kwargs["mapper"] == "last":
+        # Todo need to exract the sam header from input file, and use this as the dict argument in maf-convert
+        command = "fastq-interleave {s}1.fq {s}2.fq \
+        | lastal -k2 -l11 -Q1 -D10000 -K8 -C8 -i10M -r1 -q4 -a6 -b1 -P{procs} {ref} \
+        | maf-convert -f {d}.dict sam".format(procs=p,
+                                              ref=kwargs["reference"],
+                                              d=kwargs["out_pfix"],
+                                              s=kwargs["fastq"])
+
     else:
-        command = "bash {script} {ref} {s} {procs}".format(script=kwargs["map_script"],
-                                                           procs=p,
-                                                           ref=kwargs["reference"],
-                                                           cwd=os.getcwd(),
-                                                           s=kwargs["fastq"])
+        command = "bash {script} {ref} {s}1.fq {s}2.fq {procs}".format(script=kwargs["map_script"],
+                                                                       procs=p,
+                                                                       ref=kwargs["reference"],
+                                                                       s=kwargs["fastq"])
 
     click.echo("Mapping command:\n" + command, err=True)
     proc = Popen(command, stdout=PIPE, shell=True)
+
     return proc, p, other_p
 
 
@@ -126,6 +147,10 @@ def launch_external_mapper(kwargs):
 @click.option("--insert-median", help="Template insert size", default=300, type=float)
 @click.option("--insert-stdev",  help="Template standard-deviation", default=100, type=float)
 @click.option("--read-length",  help="Length of a read in base-pairs", default=100, type=float)
+@click.option("--fq1",  help="Fastq reads 1, used to add soft-clips to all hard-clipped read 1 alignments",
+              default=None, type=click.Path(exists=True))
+@click.option("--fq2",  help="Fastq reads 2, used to add soft-clips to all hard-clipped read 2 alignments",
+              default=None, type=click.Path(exists=True))
 @click.option("-p", "--procs", help="Processors to use", type=cpu_range, default=1)
 @click.option('--include', help=".bed file, elevate alignment scores in these regions. Determined by '--bias'",
               default=None, type=click.Path(exists=True))

@@ -13,6 +13,8 @@ from pybedtools import BedTool
 import os
 import quicksect
 from collections import defaultdict
+import click
+from subprocess import call
 
 
 def make_tree(bed_path):
@@ -31,6 +33,7 @@ def get_reads(args):
         exc_tree = make_tree(args["exclude"])
 
     bam = pysam.AlignmentFile(args["bam"], "rb")
+
     clip_length = args["clip_length"]
     if args["dest"]:
         out_name = args["dest"] + "/" + args["bam"].rsplit("/", 1)[1].rsplit(".", 1)[0] + "." + args["post_fix"]
@@ -38,6 +41,9 @@ def get_reads(args):
             os.makedirs(args["dest"])
     else:
         out_name = args["bam"].rsplit(".", 1)[0] + "." + args["post_fix"]
+
+    if args["mapper"] == "last":
+        call("samtools view -H -o {}.dict {}".format(out_name, args["bam"]), shell=True)
 
     read_names = set([])
     insert_size = []
@@ -95,7 +101,7 @@ def get_reads(args):
 def convert_to_fastq(args, outname):
 
     pysam.sort(*("-n -@{} -o {} {}".format(args["procs"], outname + ".srt.bam", outname + ".bam").split(" ")))
-    BedTool(outname + ".srt.bam").bam_to_fastq(fq=outname + ".fq")
+    BedTool(outname + ".srt.bam").bam_to_fastq(fq=outname + "1.fq", fq2=outname + "2.fq")
 
     os.remove(outname + ".srt.bam")
     os.remove(outname + ".bam")
@@ -109,6 +115,6 @@ def process(args):
     return {"insert_median": insert_median,
             "insert_stdev": insert_stdev,
             "read_length": read_length,
-            "fastq": out_name + ".fq",
+            "fastq": out_name,
             "out_pfix": out_name}
 

@@ -3,10 +3,15 @@ Utils to generate proper sam output and flag information
 """
 
 import re
+import click
+
+
+def echo(*arg):
+    click.echo(arg, err=True)
 
 
 def rev_comp(s):
-    r = {"A": "T", "C": "G", "G": "C", "T": "A", "N": "N"}
+    r = {"A": "T", "C": "G", "G": "C", "T": "A", "N": "N", "a": "T", "c": "G", "g": "C", "t": "A", "n": "N"}
     return "".join(r[i] for i in s)[::-1]
 
 
@@ -33,6 +38,14 @@ def set_mate_flag(a, b, r1_len, r2_len, max_d, read1_rev, read2_rev, template):
 
     if not a or not b:  # No alignment, mate unmapped?
         return False, False
+
+    # Make sure chromosome of mate is properly set not "*"
+    chrom_a, mate_a = a[2], a[5]
+    chrom_b, mate_b = b[2], b[5]
+    if chrom_a != mate_b:
+        b[5] = chrom_a
+    if chrom_b != mate_a:
+        a[5] = chrom_b
 
     aflag = int(a[0])
     bflag = int(b[0])
@@ -65,6 +78,10 @@ def set_mate_flag(a, b, r1_len, r2_len, max_d, read1_rev, read2_rev, template):
     # Set first and second in pair, in case not set
     aflag = set_bit(aflag, 6, 1)
     bflag = set_bit(bflag, 7, 1)
+
+    # Turn off any mate reverse flags, these should be reset
+    aflag = set_bit(aflag, 5, 0)
+    bflag = set_bit(bflag, 5, 0)
 
     # If either read is unmapped
     if aflag & 4:
@@ -151,10 +168,15 @@ def set_mate_flag(a, b, r1_len, r2_len, max_d, read1_rev, read2_rev, template):
 def set_supp_flags(sup, pri, primary_reversed, template):
     # Set paired
     supflag = int(sup[0])
+    priflag = int(pri[0])
 
     # Set supplementary flag
     if not supflag & 1:
         supflag = set_bit(supflag, 0, 1)
+
+    # If primary is on reverse strand, set the mate reverse strand tag
+    if priflag & 16 and not supflag & 32:
+        supflag = set_bit(supflag, 5, 1)
 
     # Turn off not-primary-alignment
     if supflag & 256:
@@ -162,9 +184,9 @@ def set_supp_flags(sup, pri, primary_reversed, template):
 
     # Sometimes supplementary needs to be reverse complemented too
     # Occurs when primary has been rev-comp and supp is forward strand or vice versa
-    if primary_reversed and not supflag & 16:
-        rev_sup = True
-    elif not primary_reversed and supflag & 16:
+    # if primary_reversed and not supflag & 16:
+    #     rev_sup = True
+    if not primary_reversed and supflag & 16:
         rev_sup = True
     else:
         rev_sup = False
@@ -176,7 +198,8 @@ def set_supp_flags(sup, pri, primary_reversed, template):
     return rev_sup
 
 
-def add_sequence_back(item, reverse_me, template):
+def add_sequence_back(atype, item, reverse_me, template):
+
     c = re.split(r'(\d+)', item[4])[1:]  # Drop leading empty string
     start = 0
 
@@ -185,15 +208,21 @@ def add_sequence_back(item, reverse_me, template):
 
     if flag & 64 and template["read1_seq"]:
         name = "read1"
-        end = len(template["read1_seq"])
+        if template["fq_read1_seq"] is not None:
+            end = len(template["fq_read1_seq"])
+        else:
+            end = len(template["read1_seq"])
 
     elif flag & 128 and template["read2_seq"]:
         name = "read2"
-        end = len(template["read2_seq"])
+        if template["fq_read2_seq"] is not None:
+            end = len(template["fq_read2_seq"])
+        else:
+            end = len(template["read2_seq"])
     else:
         return  # read sequence is None or bad flag
 
-    # Try ad replace H with S
+    # Try and replace H with S
     if c[1] == "H" or c[-1] == "H":
         # Replace hard with soft-clips
         non_hardclipped_length = sum([int(c[i]) for i in range(0, len(c), 2) if c[i + 1] not in "D"])
@@ -207,12 +236,30 @@ def add_sequence_back(item, reverse_me, template):
             if c[-1] == "H":
                 end -= int(c[-2])
 
-    if reverse_me:
-        item[8] = rev_comp(template["%s_seq" % name])[start:end]
-        item[9] = template["%s_q" % name][::-1][start:end]
+    if item[9] == "*":
+        if reverse_me:
+            item[8] = rev_comp(template["%s_seq" % name])[start:end]
+            item[9] = template["%s_q" % name][::-1][start:end]
+        else:
+            item[8] = template["%s_seq" % name][start:end]
+            item[9] = template["%s_q" % name][start:end]
+
+    elif item[9] in template["fq_%s_q" % name]:
+        item[8] = template["fq_%s_seq" % name][start:end]
+        item[9] = template["fq_%s_q" % name][start:end]
+
+    elif item[9] in template["fq_%s_q" % name][::-1]:
+        item[8] = rev_comp(template["fq_%s_seq" % name])[start:end]
+        item[9] = template["fq_%s_q" % name][::-1][start:end]
     else:
-        item[8] = template["%s_seq" % name][start:end]
-        item[9] = template["%s_q" % name][start:end]
+        echo("---")
+        echo(item[9], flag)
+        echo(name)
+        echo(template["read1_q"])
+        echo(template["read2_q"])
+        echo(item)
+        echo(rev_comp(template["fq_%s_seq" % name]))
+        raise ValueError
 
     assert len(item[8]) == cigar_length
 
@@ -258,14 +305,15 @@ def fixsam(template):
                 split = "1"
             else:
                 split = "0"
-
+        # "@RG\tID:0\tSM:0\tPU:0\tPL:0\tLB:0\n"
         xs = int(aln_info_1)
         l += ["SP:Z:" + split,
               "DA:i:" + str(xs),
-              "DP:i:" + str(round(t["dis_to_next_path"], 2)),
-              "DN:i:" + str(round(t["dis_to_normal"], 2)),
-              "PS:i:" + str(round(t["path_score"], 2)),
-              "NP:Z:" + str(round(t["normal_pairings"], 1))
+              "DP:Z:" + str(round(t["dis_to_next_path"], 0)),
+              "DN:Z:" + str(round(t["dis_to_normal"], 2)),
+              "PS:Z:" + str(round(t["path_score"], 2)),
+              "NP:Z:" + str(round(t["normal_pairings"], 1)),
+              "RG:Z:0", "SM:Z:0", "PU:Z:lane1", "PL:Z:ILLUMINA", "LB:Z:0",
               ]
 
         if aln_info_0:
@@ -276,7 +324,11 @@ def fixsam(template):
         else:
             out.append(['sup', l, False])  # Supplementary
 
+    if primary1 is None or primary2 is None:
+        return []  # Todo deal with unmapped read or unpaired
+
     if paired:
+
         rev_A, rev_B = set_mate_flag(primary1, primary2, r1l, r2l, max_d,
                                      template["read1_reverse"], template["read2_reverse"], template)
 
@@ -294,8 +346,8 @@ def fixsam(template):
     # Add read seq info back in if necessary, before reverse complementing. Check for hard clips and clip as necessary
     for a_type, item, reverse_me in out:
         if item:
-            if len(item[8]) <= 1:  # Sequence is set as "*", needs adding back in
-                add_sequence_back(item, reverse_me, template)
+            if len(item[8]) <= 1 or "H" in item[4]:  # Sequence is set as "*", needs adding back in, or hard-clipped
+                add_sequence_back(a_type, item, reverse_me, template)
             elif reverse_me:
                 item[8] = rev_comp(item[8])
                 item[9] = item[9][::-1]

@@ -16,7 +16,7 @@ Usage
 -----
 Basic usage command is::
 
-    $ fufi run -i your.bam -o output_dir
+    $ fufi run reference.fa your.bam > results.csv
 
 For basic help use::
 

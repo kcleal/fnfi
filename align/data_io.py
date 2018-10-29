@@ -7,12 +7,12 @@ from align import samclips
 import re
 import quicksect
 import click
+from collections import defaultdict
 
 
-def make_template(rows, kind, match_score, insertsize, insertstdev, max_d, last_seen_chrom):
+def make_template(rows, match_score, insertsize, insertstdev, max_d, last_seen_chrom, fq):
     return {"isize": (insertsize, insertstdev),
             "max_d": max_d,
-            "kind": kind,
             "match_score": match_score,
             "inputdata": rows,
             "read1_length": None,
@@ -21,18 +21,22 @@ def make_template(rows, kind, match_score, insertsize, insertstdev, max_d, last_
             "passed": False,
             "name": rows[0][0][0],
             "last_seen_chrom": last_seen_chrom,
+            "inputfq": fq,
             "read1_seq": None,  # Some sam records may have seq == '*' , need a record of full seq for adding back in
             "read2_seq": None,
             "read1_q": None,
             "read2_q": None,
             "read1_reverse": False,  # Set to true is aligner has reverse complemented the sequence
-            "read2_reverse": False
+            "read2_reverse": False,
+            "fq_read1_seq": None,
+            "fq_read2_seq": None,
+            "fq_read1_q": None,
+            "fq_read2_q": None
             }
 
 
 def get_start_end(cigar):
     c = re.split(r'(\d+)', cigar)[1:]  # Drop leading empty string
-    # cigar_tuples = [(int(c[i]), c[i+1]) for i in range(len(c)-1)]
     end = 0
     start = 0
     for i in range(0, len(c)-1, 2):
@@ -41,7 +45,12 @@ def get_start_end(cigar):
             end += int(c[i])
         elif c[i+1] not in "DHS":  # Don't count deletions, or soft/hard clips at right-hand side
             end += int(c[i])
-    return start, end  # , cigar_tuples
+    return start, end
+
+
+def rev_comp(s):
+    r = {"A": "T", "C": "G", "G": "C", "T": "A", "N": "N", "a": "T", "c": "G", "g": "C", "t": "A", "n": "N"}
+    return "".join(r[i] for i in s)[::-1]
 
 
 def sam_to_array(template):
@@ -49,7 +58,7 @@ def sam_to_array(template):
     data, overlaps = zip(*template["inputdata"])
 
     template["inputdata"] = [[i[1], i[2], i[3]] + i[4].strip().split("\t") for i in data]
-    # [chrom, pos, query_start, query_end, aln_score, row_index, strand, read, num_matches]
+    # [chrom, pos, query_start, query_end, aln_score, row_index, strand, read, num_mis-matches]
     a = []
     chrom_ids = {}
     cc = 0
@@ -82,11 +91,17 @@ def sam_to_array(template):
         else:
             r[7] = 1 if flag & 64 else 2
 
-        # Save record of seq and qual for adding in later, if needs be
-        if not template["read1_seq"] and (flag & 64) and (len(l[8]) > 1):
+        # Save record of map orientation for determining if sequence has been reverse complemented
+        # if (flag & 64) and (not flag & 2304) and (len(l[8]) > 1):
+        #     template["map1_q"] = l[8].upper()
+        # if (flag & 128) and (not flag & 2304) and (len(l[8]) > 1):
+        #     template["map2_q"] = l[8].upper()
+
+        if template["read1_seq"] is None and (flag & 64) and (len(l[8]) > 1):
             template["read1_seq"] = l[8]
             template["read1_q"] = l[9]
-        if not template["read2_seq"] and (flag & 128) and (len(l[8]) > 1):
+
+        if template["read2_seq"] is None and (flag & 128) and (len(l[8]) > 1):
             template["read2_seq"] = l[8]
             template["read2_q"] = l[9]
 
@@ -113,16 +128,28 @@ def sam_to_array(template):
         r[3] = query_start + query_end
         a.append(r)
 
-        if not template['read1_length'] and not flag & 64:
+        if template['read1_length'] is None and not flag & 64:
             template['read1_length'] = seq_len
 
-        if not template['read2_length'] and flag & 64:
+        if template['read2_length'] is None and flag & 64:
             template['read2_length'] = seq_len
 
         if flag & 64 and flag & 16 and not flag & 256:
             template["read1_reverse"] = True
+
         if flag & 128 and flag & 16 and not flag & 256:
             template["read2_reverse"] = True
+
+    # Save any input fastq information
+    fq1, fq2 = template["inputfq"]
+    if fq1 is not None:
+        template["fq_read1_seq"] = fq1[1]
+        template["fq_read1_q"] = fq1[2]
+        template["fq_read1_length"] = len(fq1[1])
+    if fq2 is not None:
+        template["fq_read2_seq"] = fq2[1]
+        template["fq_read2_q"] = fq2[2]
+        template["fq_read2_length"] = len(fq2[1])
 
     for i in range(len(a)):
         if a[i][7] == 2:
@@ -131,6 +158,8 @@ def sam_to_array(template):
 
     template['data'] = np.array(sorted(a, key=lambda x: (x[2], -x[4]))).astype(float)
     template['chrom_ids'] = chrom_ids
+
+    del template["inputfq"]
 
 
 def _choose_supplementary(template):
@@ -243,7 +272,8 @@ def overlap_regions(bed):
         if c not in chrom_intervals:
             chrom_intervals[c] = quicksect.IntervalTree()
         chrom_intervals[c].add(int(s), int(e))
-
+    click.echo("Made interval tree, showing first entries:", err=True)
+    click.echo(regions[:10], err=True)
     return chrom_intervals
 
 
@@ -258,7 +288,7 @@ def intersecter(tree, chrom, start, end):
 def sam_itr(args):
 
     itr = args["sam"]
-    tree = overlap_regions(args["search"])
+    tree = overlap_regions(args["include"])
 
     # First get header
     header_string = ""
@@ -294,13 +324,50 @@ def sam_itr(args):
         yield (line, last_seen_chrom, ol)
 
 
-def proc_fq(fq):
-    for l1 in fq:
-        l1 = str(l1.strip()[1:])
-        l2 = next(fq).strip()
-        next(fq)
-        l4 = next(fq).strip()
-        yield l1, l2, l4
+def fq_reader(args):
+    # Iterate the fq files, send back a generator to use, generate only the read name, seq and qual lines
+    def readfq(f):
+        for l1 in f:
+            l1 = l1.strip()[1:-2]  # Strip trailing /1 or /2 and leading @
+            l2 = next(f).strip()
+            next(f)
+            l4 = next(f).strip()
+            yield l1, l2, l4
+
+    if args["fq1"] is None:
+        yield None, None
+
+    if args["fq1"] and args["fq2"] is None:  # Single end
+        with open(args["fq1"]) as fq1:
+            for item in readfq(fq1):
+                yield (item, None)
+    else:
+        with open(args["fq1"]) as fq1, open(args["fq2"]) as fq2:
+            for item1, item2 in zip(readfq(fq1), readfq(fq2)):
+                assert item1[0] == item2[0]
+                yield item1, item2
+
+
+def fq_getter(reader, name, args, fbuffer):
+
+    if args["fq1"] is None:
+        return None, None
+
+    if name in fbuffer:
+        fqlines = fbuffer[name]
+        del fbuffer[fqlines[name]]
+        return fqlines
+
+    while True:
+        fqlines = next(reader)
+        q = fqlines[0][0]
+        if q == name:
+            return fqlines
+        else:
+            fbuffer[q] = fqlines
+    else:
+        click.echo("WARNING: fastq not found", err=True)
+        return None, None
 
 
 def iterate_mappings(args):
@@ -317,26 +384,36 @@ def iterate_mappings(args):
     rows = []
     dropped = 0
     header_string = next(inputstream)
+    header_string += "@RG\tID:0\tSM:0\tPU:lane1\tPL:ILLUMINA\tLB:0\n"  # Todo deal with read group information
+
     yield header_string
+
+    fq_buffer = defaultdict(list)
+    fq_iter = fq_reader(args)
 
     max_d = args["insert_median"] + 2*args["insert_stdev"]
     for m, last_seen_chrom, ol in inputstream:  # Alignment
+
         nm = m[0]
         if name != nm:
+
             if len(rows) > 0:
                 total += 1
                 if total % 10000 == 0:
                     click.echo(str(total), err=True)
-                yield (rows, "sam", args["bias"], args["insert_median"], args["insert_stdev"], max_d, last_seen_chrom)
+                fq = fq_getter(fq_iter, name, args, fq_buffer)
+                yield (rows, args["bias"], args["insert_median"], args["insert_stdev"], max_d, last_seen_chrom, fq)
+
             rows = []
             name = nm
-        rows.append((m, ol))  # String
+        rows.append((m, ol))  # String, ol states if alignment overlaps ROI
 
     # Deal with last record
     if len(rows) > 0:
         # yield Read_template(rows, args.input_kind, match_score, args.insert_size, args.insert_stdev)
         total += 1
-        yield (rows, "sam", args["bias"], args["insert_median"], args["insert_stdev"], max_d, last_seen_chrom)
+        fq = fq_getter(fq_iter, name, args, fq_buffer)
+        yield (rows, args["bias"], args["insert_median"], args["insert_stdev"], max_d, last_seen_chrom, fq)
 
     click.echo("Total dropped " + str(dropped) + "\n", err=True)
     click.echo("Total processed " + str(total) + "\n", err=True)

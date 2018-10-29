@@ -12,6 +12,7 @@ import numpy as np
 from scipy.stats import norm
 
 from align import align_path_c
+import click
 
 
 def bwa_pair_score(pos1, pos2, strand1, strand2, mu, sigma, match_score, u=9):
@@ -261,9 +262,14 @@ def process(rt):
     r1_len = rt['read1_length']
     r2_len = rt['read2_length']
 
-    if r2_len is None:
+    if r2_len is None and r1_len:
         single_end = True
         contig_l = r1_len
+    elif r1_len is None and r2_len:
+        single_end = True
+        contig_l = r2_len
+    elif r1_len is None and r2_len is None:
+        return False
     else:
         single_end = False
         contig_l = r1_len + r2_len
