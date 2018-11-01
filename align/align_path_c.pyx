@@ -74,7 +74,7 @@ cdef bwa_pair_score(float pos1, float pos2, float strand1, float strand2, float 
 
     # prob is probability of observing an insert size larger than d assuming a normal distribution
     d = abs(pos1 - pos2)
-    if d > 2500:
+    if d > (mu + 4*sigma):
         prob = 1e-9
     else:
         prob = (1 - normcdf(d, mu, sigma)) + 1e-9  # Add 1e-9 to prevent 0 and math domain error
@@ -128,11 +128,11 @@ def optimal_path(
 
     normal_jumps = set([])  # Keep track of which alignments form 'normal' pairs between read-pairs. Alas native python
 
-    cdef int i, j, p, FR
+    cdef int i, j, p, FR, normal_end_index
     cdef float chr1, pos1, start1, end1, score1, row_index1, strand1, r1,\
                chr2, pos2, start2, end2, score2, row_index2, strand2, r2, \
                micro_h, ins, best_score, next_best_score, best_normal_orientation, current_score, total_cost,\
-               S, sc, max_s, path_score, cst, jump_cost, normal_score
+               S, sc, max_s, path_score, cst, jump_cost
 
     # Deal with first score
     for i in range(segments.shape[0]):
@@ -144,6 +144,7 @@ def optimal_path(
     best_score = 0  # Declare here in case only 1 alignment
     next_best_score = 0
     best_normal_orientation = 0  # Keep track of the best normal pairing score, F first R second
+    normal_end_index = -1  # Keep track of the last normal-index for updating the normal-score later on
 
     # start from segment two because the first has been scored
     for i in range(1, segments.shape[0]):
@@ -216,11 +217,12 @@ def optimal_path(
                 elif current_score > next_best_score:
                     next_best_score = current_score
 
-                if FR and abs(pos1 - pos2) < 2000:  # Intra, normal pair
+                if FR and abs(pos1 - pos2) < (mu + 4*sigma):  # Intra, normal pair
 
-                    normal_score = score1 + score2 + jump_cost
-                    if normal_score > best_normal_orientation:
-                        best_normal_orientation = normal_score
+                    # normal_score = score1 + score2 + jump_cost
+                    if current_score > best_normal_orientation:
+                        best_normal_orientation = current_score
+                        normal_end_index = i  # index i is towards the right-hand side of the array
 
         node_scores[i] = best_score
         pred[i] = p
@@ -243,6 +245,9 @@ def optimal_path(
             end_i = i
         elif node_to_end_cost > secondary:
             secondary = node_to_end_cost
+
+        if i == normal_end_index:  # Update the best normal score, deals with right-hand-side soft-clips
+            best_normal_orientation = node_to_end_cost
 
     # Need to check if any branches from main path have a higher secondary than the 'virtual' end node
     # This can happen if the secondary path joins the main path within the graph, rather than at the end node.

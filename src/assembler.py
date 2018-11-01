@@ -36,6 +36,26 @@ def update_edge(u, v, qual, G, kind, strand):
         G.add_edge(u, v)
 
 
+def get_ref_pos(cigar, pos):
+    # pysam get_reference_positions(full_length=True) does'nt work for last styled cigars, rolled my own here
+    p = []
+    current_pos = pos
+    for opp, length in cigar:
+        if opp == 4:
+            p += [None for _ in range(length)]
+        elif opp == 0 or opp == 7 or opp == 8:  # All match, match (=), mis-match (X)
+            p += [j for j in range(current_pos, current_pos + length)]
+            current_pos += length
+        elif opp == 1:  # Insertion
+            p += [None for _ in range(length)]
+        elif opp == 5 or opp == 2:  # Hard clip or deletion
+            current_pos += length
+        elif opp == 3:
+            p += [None for _ in range(length)]
+            current_pos += length
+    return p
+
+
 def base_assemble(g, reads, bam, id=0):
     """
     Assembles reads that have overlaps. Uses alignment positions to determine contig construction
@@ -47,13 +67,17 @@ def base_assemble(g, reads, bam, id=0):
     """
     # Note supplementary are included in assembly; helps link regions
     # Get reads of interest
-    rd = [reads[n[0]][n[1]] for n in g.nodes()]
+
+    rd = [reads[n[0]][(n[1], n[2])] for n in g.nodes()]
 
     G = nx.DiGraph()
     for r in rd:
         if r.seq is None:
             continue
-        seq_pos = deque(list(zip(r.seq, r.get_reference_positions(full_length=True), r.query_qualities)))
+        # r.get_reference_positions(full_length=True)
+        # assert all(i == j for i, j in zip(r.get_reference_positions(full_length=True),
+        # get_ref_pos(r.cigartuples, r.pos)))
+        seq_pos = deque(list(zip(r.seq, get_ref_pos(r.cigartuples, r.pos), r.query_qualities)))
         c_chrom = r.rname
         c_pos = r.pos
         strand = -1 if r.flag & 16 else 1
@@ -110,9 +134,9 @@ def base_assemble(g, reads, bam, id=0):
 
         # Add a start and end tag for each read, so reads contributing to contig sequence can be determined
         if v_first:
-            G.node[v_first]["rid"].append((r.qname, r.flag))
+            G.node[v_first]["rid"].append((r.qname, r.flag, r.pos))
         if v_last:
-            G.node[v_last]["rid"].append((r.qname, r.flag))
+            G.node[v_last]["rid"].append((r.qname, r.flag, r.pos))
 
     G.remove_node(-1)
 

@@ -74,7 +74,7 @@ def run_command(ctx, **kwargs):
     if not single:
         kwargs["procs"] = remaining_procs + used_procs
     sort_and_index(kwargs)
-    quit()
+
     ctx.forward(call_events, raw_bam=kwargs["bam"], sv_bam=kwargs["out_pfix"] + ".srt.bam", **kwargs)
 
     click.echo("fufi run completed in {} h:m:s\n".format(str(datetime.timedelta(seconds=int(time.time() - t0)))),
@@ -123,7 +123,7 @@ def launch_external_mapper(kwargs):
         # Todo need to exract the sam header from input file, and use this as the dict argument in maf-convert
         command = "fastq-interleave {s}1.fq {s}2.fq \
         | lastal -k2 -l11 -Q1 -D10000 -K8 -C8 -i10M -r1 -q4 -a6 -b1 -P{procs} {ref} \
-        | maf-convert -f {d}.dict sam".format(procs=p,
+        | last-map-probs -m 0.9 -s 11 | maf-convert -f {d}.dict sam".format(procs=p,
                                               ref=kwargs["reference"],
                                               d=kwargs["out_pfix"],
                                               s=kwargs["fastq"])

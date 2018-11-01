@@ -67,8 +67,10 @@ def get_reads(args):
             continue
 
         if len(insert_size) < 10000 and r.flag & 2:
-            insert_size.append(abs(r.template_length))
-            read_length.append(r.infer_read_length())
+            tmpl = abs(r.template_length)
+            if tmpl < 10000:
+                insert_size.append(tmpl)
+                read_length.append(r.infer_read_length())
 
         if r.qname not in read_names:
             if not r.flag & 2 or r.flag & 2048:  # Save if read is discordant or supplementary exists

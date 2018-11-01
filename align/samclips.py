@@ -307,6 +307,7 @@ def fixsam(template):
                 split = "0"
         # "@RG\tID:0\tSM:0\tPU:0\tPL:0\tLB:0\n"
         xs = int(aln_info_1)
+
         l += ["SP:Z:" + split,
               "DA:i:" + str(xs),
               "DP:Z:" + str(round(t["dis_to_next_path"], 0)),

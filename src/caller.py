@@ -47,15 +47,15 @@ def process_node_set(node_set, all_reads, bam, insert_size, insert_stdev):
     break_points = {}
     seen = set([])
     # for u, v, d in edges:
-    for n, f in node_set:  # node name, flag
+    for n, f, p in node_set:  # node name, flag
         if n in seen:
             continue
         seen.add(n)  # Seen template
-        for f in all_reads[n].keys():
-            aln = all_reads[n][f]
+        for (f, p) in all_reads[n].keys():
+            aln = all_reads[n][(f, p)]
             guessed = guess_break_point(aln, bam, insert_size, insert_stdev)
             if len(guessed) > 0:
-                break_points[(n, f)] = guessed
+                break_points[(n, f, p)] = guessed
 
     return break_points
 
@@ -157,7 +157,7 @@ def call_break_points(c1, c2):
     info = {}
     count = 0
     contributing_reads = set([])
-    for grp in [c1, c2]:
+    for grp in (c1, c2):
         if len(grp) == 0:
             continue  # When no c2 is found
         for i in grp:
@@ -258,9 +258,9 @@ def score_reads(read_names, all_reads):
 
     collected = []
     data = defaultdict(list)
-    for name, flag in read_names:
+    for name, flag, pos in read_names:
         # for flag in all_reads[name]:  # Could score all alignments from a read-template?
-        read = all_reads[name][flag]
+        read = all_reads[name][(flag, pos)]
         collected.append(read)
         if not read.flag & 2048:
             idf = "pri"
@@ -317,15 +317,15 @@ def call_to_string(call_info):
     # Tab delimited string, in a bedpe style
     k = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "total_reads", "cipos95A", "cipos95B",
          "DP", "DApri", "DN", "NMpri", "SP", "EVsup", "DAsup",
-         "NMsup", "maxASsup", "contig", "pe", "sup", "sc", "block_edge", "MAPQpri", "MAPQsup"]
+         "NMsup", "maxASsup", "contig", "pe", "supp", "sc", "block_edge", "MAPQpri", "MAPQsup"]
 
     return "\t".join([str(call_info[ky]) if ky in call_info else str(None) for ky in k]) + "\n"
 
 
 def breaks_from_one_side(node_set, reads, bam, insert_size, insert_stdev):
     tup = {}
-    for nn, nf in node_set:
-        tup[(nn, nf)] = guess_break_point(reads[nn][nf], bam, insert_size, insert_stdev)
+    for nn, nf, np in node_set:
+        tup[(nn, nf, np)] = guess_break_point(reads[nn][(nf, np)], bam, insert_size, insert_stdev)
     return pre_process_breakpoints(tup).values()  # Don't return whole dict
 
 
@@ -347,7 +347,7 @@ def single(bm, reads, bam, insert_size, insert_stdev):
 
     info['pe'] = len([1 for k, v in Counter([i[0] for i in both]).items() if v > 1])
     info['sup'] = len([1 for i in both if i[1] & 2048])
-    info['sc'] = len([1 for name, flag in both if "S" in reads[name][flag].cigarstring])
+    info['sc'] = len([1 for name, flag, pos in both if "S" in reads[name][(flag, pos)].cigarstring])
     info["block_edge"] = 0
 
     info.update(score_reads(bmnodes[0], reads))
@@ -356,31 +356,51 @@ def single(bm, reads, bam, insert_size, insert_stdev):
 
 
 def one_edge(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev):
+
     assert len(bm.nodes()) == 2
     ns = list(bm.nodes())
     as1 = assemblies[ns[0]]
     as2 = assemblies[ns[1]]
-    if not as1 or not as2:
-        return None
-    if len(as1) > 0 and len(as2) > 0:
+    # roi = "simulated_reads.0.10-id277_A_chr21:46699632_B_chr17:12568030-36717"
+    # if roi in reads:
+    #     echo("as1", as1)
+    #     echo("as2", as2)
+
+    if as1 is None or len(as1) == 0:
+        tuple_a = breaks_from_one_side(ns[0], reads, bam, insert_size, insert_stdev)
+    else:
+        tuple_a = get_tuple(as1)  # Tuple of breakpoint information
+
+    if as2 is None or len(as2) == 0:
+        tuple_b = breaks_from_one_side(ns[1], reads, bam, insert_size, insert_stdev)
+    else:
+        tuple_b = get_tuple(as2)
+
+    if as1 is not None and len(as1) > 0 and as2 is not None and len(as2) > 0:
         as1, as2 = assembler.link_pair_of_assemblies(as1, as2, clip_length)
 
-    if len(as1) > 0:
-        tuple_a = get_tuple(as1)  # Tuple of breakpoint information
-    else:   # Make a tuple from read information in node
-        tuple_a = breaks_from_one_side(ns[0], reads, bam, insert_size, insert_stdev)
-
-    if len(as2) > 0:
-        tuple_b = get_tuple(as2)
-    else:
-        tuple_b = breaks_from_one_side(ns[1], reads, bam, insert_size, insert_stdev)
-
     info, contrib_reads = call_break_points(tuple_a, tuple_b)
+
+    # if roi in reads:
+    #     echo("info", info)
+    #     echo("r", "result" in bm[ns[0]][ns[1]])
+
     if "result" not in bm[ns[0]][ns[1]]:
         return None
     info.update(bm[ns[0]][ns[1]]["result"])
     info.update(score_reads(ns[0].union(ns[1]), reads))
     info["block_edge"] = 1
+
+    if as1 is not None and "contig" in as1:
+        info["contig"] = as1["contig"]
+    elif as2 is not None and "contig" in as2:
+        info["contig"] = as2["contig"]
+    else:
+        info["contig"] = ""
+
+    # if roi in reads:
+    #     echo(info)
+
     return call_to_string(info)
 
 
@@ -398,8 +418,8 @@ def multi(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev):
     for u, v, scr in edge_scores:
         if u in seen or v in seen:
             continue
-        seen.add(u)
-        seen.add(v)
+        # seen.add(u)
+        # seen.add(v)
         sub = bm.subgraph([u, v])
         yield one_edge(sub, reads, bam, assemblies, clip_length, insert_size, insert_stdev)
 
@@ -412,12 +432,24 @@ def call_from_block_model(bm_graph, parent_graph, reads, bam, clip_length, inser
         # Try and assemble nodes in the block model
         assemblies = {}
         for node_set in bm.nodes():
+
             sub = parent_graph.subgraph(node_set)
-            if any(i[2]["c"] == "b" for i in sub.edges(data=True)):
-                # assemble reads if any overlapping soft-clips
-                assemblies[node_set] = assembler.base_assemble(sub, reads, bam)
-            else:
-                assemblies[node_set] = {}
+            assemblies[node_set] = assembler.base_assemble(sub, reads, bam)
+
+            # if "simulated_reads.0.10-id277_A_chr21:46699632_B_chr17:12568030-36717" in reads:
+            #     echo("assem", assemblies)
+            #     echo(sub.nodes())
+
+            # continue
+            # if any(i[2]["c"] == "b" or i[2]["c"] == "y" for i in sub.edges(data=True)):
+            #     # assemble reads if any overlapping soft-clips
+            #     assemblies[node_set] = assembler.base_assemble(sub, reads, bam)
+            #
+            # else:
+            #     assemblies[node_set] = {}
+            #     if "simulated_reads.0.10-id270_A_chr21:46697027_B_chr17:6458938-35841" in reads:
+            #         click.echo("hi", err=True)
+            #         quit()
 
         if len(bm.edges) > 1:
             # Break apart connected
@@ -426,9 +458,9 @@ def call_from_block_model(bm_graph, parent_graph, reads, bam, clip_length, inser
 
         if len(bm.nodes()) == 1:
             # Single isolated node
-            continue
-            # yield single(bm, reads, bam, insert_size, insert_stdev)
+            yield single(bm, reads, bam, insert_size, insert_stdev)
 
         if len(bm.edges) == 1:
             # Easy case
             yield one_edge(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev)
+

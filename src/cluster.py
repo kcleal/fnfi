@@ -1,5 +1,5 @@
 import pysam
-from collections import defaultdict, deque, Counter
+from collections import defaultdict, deque
 import numpy as np
 import networkx as nx
 from pybedtools import BedTool
@@ -7,7 +7,9 @@ import quicksect
 import itertools
 import click
 import sys
-from src import assembler, caller
+import time
+import datetime
+from src import caller
 try:
     from StringIO import StringIO
 except ImportError:
@@ -34,15 +36,18 @@ class Scoper:
         current_pos = current_read.pos
 
         # Go through reads and check if they are in scope
+        out_of_scope = []
         while True:
             if len(self.scope) > 0:
                 p = self.scope[0].pos
                 if current_pos - p < self.max_dist:
                     break
-                self.scope.popleft()
+                out = self.scope.popleft()
+                out_of_scope.append((out.qname, out.flag, out.pos))
                 continue
             break
         self.scope.append(current_read)
+        return out_of_scope
 
     @staticmethod
     def overlap(start1, end1, start2, end2):
@@ -121,8 +126,8 @@ class Scoper:
                         if self.overlap(t.reference_end, t_sc_end, current.reference_end, c_sc_end) >= self.clip_length:
                             yield t, True, False
 
-                else:
-                    yield t, False, False
+                # else:
+                yield t, False, False
 
         yield None, None, None  # When not enough reads are in scope
 
@@ -230,9 +235,9 @@ def explore_local(starting_nodes, large_component, other_nodes, look_for, upper_
     return set().union(*additional_nodes.values())
 
 
-def make_nuclei(g):
+def make_nuclei(g, reads):
     """
-    Nuclei are primaryily clusters of overlapping soft-clipped reads. If none are found in the graph, try using
+    Nuclei are primarily clusters of overlapping soft-clipped reads. If none are found in the graph, try using
     supplementary edges, or finally grey edges only.
     Additional nuclei are then created from yellow, or grey edges, only if they do not intersect with already defined
     nuclei. The reason for doing this is to help seperate overlapping events, with some events having soft-clips but
@@ -260,6 +265,7 @@ def make_nuclei(g):
 
     # Look for other unique connected components
     sub_grp.add_edges_from(edges)
+
     new_edges = []
     for color in look_for:
         if color in edge_colors:
@@ -362,7 +368,7 @@ def blockmodel(G, partitions):
     return M
 
 
-def make_block_model(g, insert_size, insert_stdev, read_length):
+def make_block_model(g, insert_size, insert_stdev, read_length, reads):
     """
     Make a block model representation of the graph. The nodes in the block model correspond to each side of a SV. The
     edge attributes give the different types of support between nodes i.e. number of split reads, soft-clips, pairs.
@@ -381,7 +387,7 @@ def make_block_model(g, insert_size, insert_stdev, read_length):
     :return: Block model, nodes correspond to break sites, edges give connectivity information with other break sites
     """
     # Make the inner block-model
-    sub_grp = make_nuclei(g)
+    sub_grp = make_nuclei(g, reads)
 
     sub_grp_cc = list(nx.connected_component_subgraphs(sub_grp))
 
@@ -448,45 +454,53 @@ def block_model_evidence(bm, parent_graph):
                    "pe": pe_support,
                    "sc": black_nodes,
                    "supp": supplementary}
+
             bm[node_set][neighbor_set]["result"] = res
             seen.add(neighbor_set)
     return bm
 
 
-def get_reads(infile, sub_graph, max_dist, rl):
+def get_reads(infile, sub_graph, max_dist, rl, read_buffer):
     """Using infile, collect reads belonging to sub_graph.
     :param infile: the input file
     :param sub_graph: the subgraph of interest, nodes are reads to collect
     :param max_dist: used to define an interval around reads of interest; this interval is then searched using pysam
     :param rl: the read length
     :returns read dictionary, u nodes, v nodes, edge data"""
-    # Todo create a cache of reads, to help prevent file lookups
 
-    coords = [dta['p'] for node, dta in sub_graph.nodes(data=True)]
-    coords = itertools.groupby(sorted(set(coords), key=lambda x: (x[0], x[1])), key=lambda x: x[0])  # Groupby chrom
-
-    # Make intervals of reads that are near one another
-    # https://stackoverflow.com/questions/10016802/python-group-a-list-of-integer-with-nearest-values
+    rd = defaultdict(lambda: defaultdict(dict))  # rname: (flag, pos): alignment
     c = 0
-    rd = defaultdict(lambda: defaultdict(dict))  # rname: flag: alignment
-    for chrom, crds in coords:
-        d = [i[1] for i in crds]
-        chrom = infile.get_reference_name(chrom)
-        m = [[chrom, d[0] - rl, d[0] + 2 * rl]]
+    coords = []
+    for node, dta in sub_graph.nodes(data=True):
+        if node in read_buffer:
+            rd[node[0]][(node[1], node[2])] = read_buffer[node]
+            c += 1
+        else:
+            coords.append(dta['p'])
 
-        for x in d[1:]:
-            if x - m[-1][-1] < max_dist:
-                m[-1][-1] = x + 2 * rl
-            else:
-                m.append([chrom, x - rl, x + 2*rl])
+    if len(coords) > 0:  # fetch any reads that were'nt in the buffer
+        coords = itertools.groupby(sorted(set(coords), key=lambda x: (x[0], x[1])), key=lambda x: x[0])  # Groupby chrom
 
-        # Collect reads
-        for chrom, start, end in m:
-            for aln in infile.fetch(chrom, 1 if start <= 0 else start, end):
-                if (aln.qname, aln.flag) in sub_graph:
-                    if aln.flag is not None:
-                        rd[aln.qname][aln.flag] = aln
-                        c += 1
+        # Make intervals of reads that are near one another
+        # https://stackoverflow.com/questions/10016802/python-group-a-list-of-integer-with-nearest-values
+        for chrom, crds in coords:
+            d = [i[1] for i in crds]
+            chrom = infile.get_reference_name(chrom)
+            m = [[chrom, d[0] - rl, d[0] + 2 * rl]]
+
+            for x in d[1:]:
+                if x - m[-1][-1] < max_dist:
+                    m[-1][-1] = x + 2 * rl
+                else:
+                    m.append([chrom, x - rl, x + 2*rl])
+
+            # Collect reads
+            for chrom, start, end in m:
+                for aln in infile.fetch(chrom, 1 if start <= 0 else start, end):
+                    if (aln.qname, aln.flag, aln.pos) in sub_graph:
+                        if aln.flag is not None:
+                            rd[aln.qname][(aln.flag, aln.pos)] = aln
+                            c += 1
     # assert(c == len(nodes))  #!
     if c != len(sub_graph.nodes()):
         click.echo("WARNING: reads missing from collection - {} vs {}".format(c, len(sub_graph.nodes())), err=True)
@@ -494,34 +508,64 @@ def get_reads(infile, sub_graph, max_dist, rl):
     return rd
 
 
-def construct_graph(args, infile, max_dist):
+def construct_graph(args, infile, max_dist, buf_size=1e6):  # todo add option for read buffer length
 
     regions = get_regions(args["include"])
 
     nodes = []
     edges = []
-    all_flags = defaultdict(lambda: defaultdict(list))  # Linking clusters together rname: (flag): (chrom, pos)
+
+    all_flags = defaultdict(lambda: defaultdict(list))  # Linking clusters together rname: (flag, pos): (chrom, pos)
+
+    # Make a buffer of reads to help prevent file lookups later
+    read_buffer = dict()  # keys are (rname, flag, pos)
+    read_index_buffer = dict()  # keys are int, values are (rname, flag, pos)
 
     scope = Scoper(max_dist=max_dist)
 
+    # template = pysam.AlignmentFile(args["sv_bam"])
+    # tt = pysam.AlignmentFile("{}.test.bam".format(args["sv_bam"][:-4]), "wb", template=template)
     count = 0
+    buf_del_index = 0
+    # unwritten = {}
     for r in infile:
 
+        # written = False
         if count % 10000 == 0:
-            click.echo("SV reads processed {}".format(count), err=True)
+            if count != 0:
+                click.echo("SV reads processed {}".format(count), err=True)
+
+        n1 = (r.qname, r.flag, r.pos)
+
+        # Add read to buffer
+        read_buffer[n1] = r
+        read_index_buffer[count] = n1
+
+        # Reduce reads in buffer if too many
+        if len(read_buffer) > buf_size:
+            del read_buffer[read_index_buffer[buf_del_index]]
+            buf_del_index += 1
+
         count += 1
 
-        n1 = (r.qname, r.flag)
         nodes.append((n1, {"p": (r.rname, r.pos)}))
-        all_flags[r.qname][r.flag].append((r.rname, r.pos))
+        all_flags[r.qname][(r.flag, r.pos)].append((r.rname, r.pos, r.flag))
 
         # Limit to regions
         if regions:
             rname = infile.get_reference_name(r.rname)
             if rname not in regions or len(regions[rname].search(r.pos, r.pos + 1)) == 0:
-                continue
+                rnext = infile.get_reference_name(r.rnext)
+                if rnext not in regions or len(regions[rnext].search(r.pnext, r.pnext + 1)) == 0:
+                    continue
 
-        scope.update(r)  # Add alignment to scope
+        out_of_scope = scope.update(r)  # Add alignment to scope
+
+        # if out_of_scope is not None and len(out_of_scope) > 0:
+        #     for kk in out_of_scope:
+        #         if kk in unwritten:
+        #             del unwritten[kk]
+
         grey_added = 0
 
         for t, ol, sup_edge in scope.iterate():  # Other read, overlap current read, supplementary edge
@@ -529,36 +573,61 @@ def construct_graph(args, infile, max_dist):
             if not t:
                 break
 
-            n2 = (t.qname, t.flag)
-            all_flags[t.qname][t.flag].append((t.rname, t.pos))
+            n2 = (t.qname, t.flag, t.pos)
+            all_flags[t.qname][(t.flag, t.pos)].append((t.rname, t.pos))
 
             # Four types of edges; black means definite match with overlapping soft-clips. Grey means similar
             # rearrangement with start and end co-ords on reference genome. Yellow means supplementary matches a primary
             # read; these edges need to be checked when both primary reads are available, change to black edge or delete
             # Finally white edge means a read1 to read2 edge
-            e = None
             if ol and not sup_edge:
                 identity, prob_same = align_match(r, t)
 
                 if prob_same > 0.01:  # Add a black edge
                     e = (n1, n2, {"c": "b"})  # "p": [(r.rname, r.pos), (t.rname, t.pos)],
-
-            elif not ol and not sup_edge:
-                # Make sure both are discordant, mapped to same chromosome
-                if (r.flag & 2) or (t.flag & 2) or r.rnext == -1 or r.rnext != t.rnext:
+                    # if not written:
+                    #     tt.write(r)
+                    #     written = True
+                    #     if (t.qname, t.flag, t.pos) in unwritten:
+                    #         tt.write(unwritten[(t.qname, t.flag, t.pos)])
+                    #         del unwritten[(t.qname, t.flag, t.pos)]
+                    edges.append(e)
                     continue
-                if abs(r.pnext - t.pnext) < max_dist:
-                    # Add a grey edge
-                    e = (n1, n2, {"c": "g"})
-                    grey_added += 1
-                    if grey_added > 60:
-                        break  # Stop the graph getting unnecessarily dense
+
+            # elif not ol and not sup_edge:
+                # Make sure both are discordant, mapped to same chromosome
+            if (r.flag & 2) or (t.flag & 2) or r.rnext == -1 or r.rnext != t.rnext:
+                continue
+
+            if abs(r.pnext - t.pnext) < max_dist:
+                # Add a grey edge
+                e = (n1, n2, {"c": "g"})
+                grey_added += 1
+                # if not written:
+                #     tt.write(r)
+                #     written = True
+                #     if (t.qname, t.flag, t.pos) in unwritten:
+                #         tt.write(unwritten[(t.qname, t.flag, t.pos)])
+                #         del unwritten[(t.qname, t.flag, t.pos)]
+                if grey_added > 60:
+                    break  # Stop the graph getting unnecessarily dense
+                edges.append(e)
+                continue
 
             elif sup_edge:
                 # Add a yellow edge
                 e = (n1, n2, {"c": "y"})
-            if e:
                 edges.append(e)
+                continue
+
+        # if not written:
+        #     unwritten[(r.qname, r.flag, r.pos)] = r
+
+    # template.close()
+    # tt.close()
+    # from subprocess import call
+    # call("samtools sort -o {v}.test.srt.bam {v}.test.bam".format(v=args["sv_bam"][:-4]), shell=True)
+    # call("samtools index {}.test.srt.bam".format(args["sv_bam"][:-4]), shell=True)
 
     # Add read-pair information to the graph, link regions together
     G = nx.Graph()
@@ -569,54 +638,70 @@ def construct_graph(args, infile, max_dist):
     for g in nx.connected_component_subgraphs(G, copy=True):
 
         # Add white edges between read-pairs which are NOT in the subgraph
-        nodes_to_check = [(n, all_flags[n].keys()) for n, f in g.nodes()]
+        nodes_to_check = [(n, all_flags[n].keys()) for n, f, p in g.nodes()]
 
         for n, flags in nodes_to_check:  # 2 reads, or 3 if supplementary read
+
             for f1, f2 in itertools.combinations_with_replacement(flags, 2):  # Check all edges within template
-                u, v = (n, f1), (n, f2)
+                u, v = (n, f1[0], f1[1]), (n, f2[0], f2[1])
                 has_v, has_u = g.has_node(v), g.has_node(u)
 
                 # Only add an edge if either u or v is missing, not if both (or neither) missing
                 if has_u != has_v:  # XOR
-                    # "p": list(set(all_flags[n][f1] + all_flags[n][f2]))
                     new_edges.append((u, v, {"c": "w"}))
 
     # Regroup based on white edges (link together read-pairs)
     G.add_edges_from(new_edges)
-    return G
+    click.echo("Read {} alignments into overlap graph".format(count - 1), err=True)
+    return G, read_buffer
 
 
 def cluster_reads(args):
+    t0 = time.time()
     infile = pysam.AlignmentFile(args["sv_bam"], "rb")
-    max_dist = args["insert_median"] + (4 * args["insert_stdev"])  # > distance then reads drop out of clustering scope
-    G = construct_graph(args, infile, max_dist)
+    max_dist = args["insert_median"] + (5 * args["insert_stdev"])  # > distance reads drop out of clustering scope
+    click.echo("Maximum clustering distance is {}".format(max_dist), err=True)
+
+    G, read_buffer = construct_graph(args, infile, max_dist)
 
     if args["output"] == "-" or args["output"] is None:
+        click.echo("Writing events to stdout", err=True)
         outfile = sys.stdout
     else:
+        click.echo("Writing events to {}".format(args["output"]), err=True)
         outfile = open(args["output"], "w")
 
     with outfile:
-        head = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "total_reads", "cipos95A", "cipos95B"
+        head = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "total_reads", "cipos95A", "cipos95B",
          "DP", "DApri", "DN", "NMpri", "SP", "EVsup", "DAsup",
          "NMsup", "maxASsup", "contig", "pe", "sup", "sc", "block_edge", "MAPQpri", "MAPQsup"]
 
         outfile.write("\t".join(head) + "\n")
         c = 0
-
+        # roi = "simulated_reads.0.10-id277_A_chr21:46699632_B_chr17:12568030-36717"
         for grp in nx.connected_component_subgraphs(G):  # Get large components, possibly multiple events
 
-            bm = make_block_model(grp, args["insert_median"], args["insert_stdev"], args["read_length"])
+            reads = get_reads(infile, grp, max_dist, int(args['read_length']), read_buffer)
+            # if roi in reads:
+            #     echo(reads)
+
+            bm = make_block_model(grp, args["insert_median"], args["insert_stdev"], args["read_length"], reads)
             if len(bm.nodes()) == 0:
                 continue
 
-            bm = block_model_evidence(bm, grp)  # Annotate block model with evidence
+            # if roi in reads:
+            #     echo([len(i) for i in list(bm.nodes())])
 
-            reads = get_reads(infile, grp, max_dist, int(args['read_length']))
+            bm = block_model_evidence(bm, grp)  # Annotate block model with evidence
 
             for event in caller.call_from_block_model(bm, grp, reads, infile, args["clip_length"], args["insert_median"],
                                          args["insert_stdev"]):
+
                 if event:
                     outfile.write(event)
                     c += 1
+                    # if roi in reads:
+                    #     echo(event)
 
+    click.echo("cluster completed in {} h:m:s\n".format(str(datetime.timedelta(seconds=int(time.time() - t0)))),
+               err=True)
