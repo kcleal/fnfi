@@ -137,8 +137,8 @@ def optimal_path(
     # Deal with first score
     for i in range(segments.shape[0]):
         node_scores[i] = segments[i, 4] - (segments[i, 2] * ins_cost)
-    pred[0] = -1
-
+    #pred[0] = -1
+    pred.fill(-1)
     nb_node_scores.fill(-1e6)  # Must set to large negative, otherwise a value of zero can imply a path to that node
 
     best_score = 0  # Declare here in case only 1 alignment
@@ -212,6 +212,7 @@ def optimal_path(
                 if current_score >= best_score:
                     next_best_score = best_score
                     best_score = current_score
+
                     p = j
 
                 elif current_score > next_best_score:
@@ -240,6 +241,7 @@ def optimal_path(
         cst = (ins_cost * (contig_length - segments[i, 3]))
 
         node_to_end_cost = node_scores[i] - cst
+
         if node_to_end_cost > path_score:
             path_score = node_to_end_cost
             end_i = i

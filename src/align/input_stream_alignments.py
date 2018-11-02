@@ -21,6 +21,13 @@ import click
 
 def process_template(read_template):
     data_io.sam_to_array(read_template)
+
+    # if read_template["name"] == "simulated_reads.0.10-id217_A_chr21:46697360_B_chr6:157282148-28985":
+    #     click.echo(read_template["read1_length"], err=True)
+    #     click.echo(read_template["read2_length"], err=True)
+    #     for item in read_template["data"].tolist():
+    #         click.echo(item, err=True)
+
     res = pairing.process(read_template)
     if res:
         data_io.apply_filter(read_template, *res)

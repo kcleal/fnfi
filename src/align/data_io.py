@@ -130,9 +130,11 @@ def sam_to_array(template):
             query_end = 0
         else:
             query_start, query_end = get_start_end(cigar)
+            if template["name"] == "simulated_reads.0.10-id217_A_chr21:46697360_B_chr6:157282148-28985":
+                click.echo((idx, query_start, query_end), err=True)
 
         r[2] = query_start
-        r[3] = query_start + query_end
+        r[3] = query_end  # query_start + query_end
         a.append(r)
 
         if template['read1_length'] is None and not flag & 64:
@@ -152,16 +154,21 @@ def sam_to_array(template):
     if fq1 is not None:
         template["fq_read1_seq"] = fq1[1]
         template["fq_read1_q"] = fq1[2]
-        template["fq_read1_length"] = len(fq1[1])
+        template["read1_length"] = len(fq1[1])
     if fq2 is not None:
         template["fq_read2_seq"] = fq2[1]
         template["fq_read2_q"] = fq2[2]
-        template["fq_read2_length"] = len(fq2[1])
+        template["read2_length"] = len(fq2[1])
 
     for i in range(len(a)):
-        if a[i][7] == 2:
+        if a[i][7] == 2:  # Second in pair
             a[i][2] += template['read1_length']
             a[i][3] += template['read1_length']
+
+    if a[i][3] > template["read1_length"] + template["read2_length"]:
+        click.echo((a[i][3], template["read1_length"] + template["read2_length"]), err=True)
+        click.echo((len(fq1[1]), len(fq2[1])), err=True)
+        raise ValueError
 
     template['data'] = np.array(sorted(a, key=lambda x: (x[2], -x[4]))).astype(float)
     template['chrom_ids'] = chrom_ids
@@ -398,11 +405,10 @@ def iterate_mappings(args):
     for m, last_seen_chrom, ol in inputstream:  # Alignment
 
         nm = m[0]
-        if nm == "simulated_reads.0.10-id217_A_chr21:46697360_B_chr6:157282148-28985":
-            click.echo(m, err=True)
-            click.echo(ol, err=True)
+        # if nm == "simulated_reads.0.10-id217_A_chr21:46697360_B_chr6:157282148-28985":
+        #     click.echo(m, err=True)
+        #     click.echo(ol, err=True)
         if name != nm:
-
             if len(rows) > 0:
                 total += 1
                 if total % 10000 == 0:
