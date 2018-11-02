@@ -1,11 +1,13 @@
-import click
+import datetime
+import os
+import time
 from multiprocessing import cpu_count
 from subprocess import Popen, PIPE, check_call
-import os
-from align import input_stream_alignments
+
+import click
+
 from src import find_pairs, cluster
-import time
-import datetime
+from align import input_stream_alignments
 
 cpu_range = click.IntRange(min=1, max=cpu_count())
 
@@ -123,7 +125,7 @@ def launch_external_mapper(kwargs):
         # Todo need to exract the sam header from input file, and use this as the dict argument in maf-convert
         command = "fastq-interleave {s}1.fq {s}2.fq \
         | lastal -k2 -l11 -Q1 -D10000 -K8 -C8 -i10M -r1 -q4 -a6 -b1 -P{procs} {ref} \
-        | last-map-probs -m 0.9 -s 11 | maf-convert -f {d}.dict sam".format(procs=p,
+        | last-map-probs -m 1 -s 1 | maf-convert -f {d}.dict sam".format(procs=p,
                                               ref=kwargs["reference"],
                                               d=kwargs["out_pfix"],
                                               s=kwargs["fastq"])
@@ -151,6 +153,14 @@ def launch_external_mapper(kwargs):
               default=None, type=click.Path(exists=True))
 @click.option("--fq2",  help="Fastq reads 2, used to add soft-clips to all hard-clipped read 2 alignments",
               default=None, type=click.Path(exists=True))
+@click.option("--max_insertion", help="Maximum insertion within read", default=100, type=int)
+@click.option("--min-aln", help="Minimum alignment length", default=17, type=int)
+@click.option("--max-overlap", help="Maximum overlap between successive alignments", default=100, type=int)
+@click.option("--ins-cost", help="Insertion cost", default=1, type=float)
+@click.option("--ol-cost", help="Overlapping alignment cost", default=3, type=int)
+@click.option("--inter-cost", help="Cost of inter-chromosomal jump", default=2, type=int)
+@click.option("--u", help="Pairing heuristic cost", default=9, type=int)
+@click.option("--match-score", help="Matched base score used for input sam reads", default=1, type=int)
 @click.option("-p", "--procs", help="Processors to use", type=cpu_range, default=1)
 @click.option('--include', help=".bed file, elevate alignment scores in these regions. Determined by '--bias'",
               default=None, type=click.Path(exists=True))

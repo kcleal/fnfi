@@ -7,7 +7,7 @@ import numpy
 extensions = [
     Extension(
         "align.align_path_c",
-        ["align/align_path_c.pyx"],
+        ["src/align/align_path_c.pyx"],
         library_dirs=[numpy.get_include()],
         language="c++",
         extra_compile_args=["-std=c++11", "-mmacosx-version-min=10.9"],
@@ -17,7 +17,7 @@ extensions = [
 
 setup(
     name="fufi",
-    version='0.2.0',
+    version='0.2.2',
     packages=find_packages(),
     ext_modules=cythonize(extensions),
     include_dirs=[numpy.get_include()],
@@ -36,6 +36,6 @@ setup(
     ],
     entry_points='''
         [console_scripts]
-        fufi=src.fufi:cli
+        fufi=src.main:cli
     ''',
 )

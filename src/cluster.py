@@ -659,7 +659,7 @@ def construct_graph(args, infile, max_dist, buf_size=1e6):  # todo add option fo
 def cluster_reads(args):
     t0 = time.time()
     infile = pysam.AlignmentFile(args["sv_bam"], "rb")
-    max_dist = args["insert_median"] + (5 * args["insert_stdev"])  # > distance reads drop out of clustering scope
+    max_dist = int(args["insert_median"] + (5 * args["insert_stdev"]))  # > distance reads drop out of clustering scope
     click.echo("Maximum clustering distance is {}".format(max_dist), err=True)
 
     G, read_buffer = construct_graph(args, infile, max_dist)
@@ -678,19 +678,23 @@ def cluster_reads(args):
 
         outfile.write("\t".join(head) + "\n")
         c = 0
-        # roi = "simulated_reads.0.10-id277_A_chr21:46699632_B_chr17:12568030-36717"
+        roi = ""
         for grp in nx.connected_component_subgraphs(G):  # Get large components, possibly multiple events
 
             reads = get_reads(infile, grp, max_dist, int(args['read_length']), read_buffer)
-            # if roi in reads:
-            #     echo(reads)
+            if roi in reads:
+                echo(reads.keys())
+                echo("length of grp", len(grp.nodes()))
+                echo(grp.edges(data=True))
 
             bm = make_block_model(grp, args["insert_median"], args["insert_stdev"], args["read_length"], reads)
+            if roi in reads:
+                echo("length bm is ", len(bm.nodes()))
             if len(bm.nodes()) == 0:
                 continue
 
-            # if roi in reads:
-            #     echo([len(i) for i in list(bm.nodes())])
+            if roi in reads:
+                echo([len(i) for i in list(bm.nodes())])
 
             bm = block_model_evidence(bm, grp)  # Annotate block model with evidence
 
@@ -700,8 +704,8 @@ def cluster_reads(args):
                 if event:
                     outfile.write(event)
                     c += 1
-                    # if roi in reads:
-                    #     echo(event)
+                    if roi in reads:
+                        echo(event.replace("\t", "    "))
 
     click.echo("cluster completed in {} h:m:s\n".format(str(datetime.timedelta(seconds=int(time.time() - t0)))),
                err=True)
