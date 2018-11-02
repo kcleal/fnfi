@@ -10,6 +10,7 @@ import sys
 import time
 import datetime
 from src import caller
+from src.align import data_io
 try:
     from StringIO import StringIO
 except ImportError:
@@ -671,10 +672,12 @@ def cluster_reads(args):
         click.echo("Writing events to {}".format(args["output"]), err=True)
         outfile = open(args["output"], "w")
 
+    regions = data_io.overlap_regions(args["include"])
+
     with outfile:
         head = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "total_reads", "cipos95A", "cipos95B",
          "DP", "DApri", "DN", "NMpri", "SP", "EVsup", "DAsup",
-         "NMsup", "maxASsup", "contig", "pe", "sup", "sc", "block_edge", "MAPQpri", "MAPQsup"]
+         "NMsup", "maxASsup", "contig", "pe", "sup", "sc", "block_edge", "MAPQpri", "MAPQsup", "raw_reads_10kb", "kind"]
 
         outfile.write("\t".join(head) + "\n")
         c = 0
@@ -702,7 +705,11 @@ def cluster_reads(args):
                                          args["insert_stdev"]):
 
                 if event:
-                    outfile.write(event)
+
+                    # Colect coverage information
+                    event_string = caller.get_raw_cov_information(event, infile, regions)
+
+                    outfile.write(event_string)
                     c += 1
                     if roi in reads:
                         echo(event.replace("\t", "    "))

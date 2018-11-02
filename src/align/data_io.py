@@ -130,8 +130,6 @@ def sam_to_array(template):
             query_end = 0
         else:
             query_start, query_end = get_start_end(cigar)
-            if template["name"] == "simulated_reads.0.10-id217_A_chr21:46697360_B_chr6:157282148-28985":
-                click.echo((idx, query_start, query_end), err=True)
 
         r[2] = query_start
         r[3] = query_end  # query_start + query_end

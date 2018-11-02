@@ -2,7 +2,9 @@ from collections import Counter, defaultdict
 import numpy as np
 import click
 from src import assembler
+from src.align import data_io
 import networkx as nx
+import quicksect
 
 
 def echo(*args):
@@ -313,15 +315,6 @@ def score_reads(read_names, all_reads):
     return averaged
 
 
-def call_to_string(call_info):
-    # Tab delimited string, in a bedpe style
-    k = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "total_reads", "cipos95A", "cipos95B",
-         "DP", "DApri", "DN", "NMpri", "SP", "EVsup", "DAsup",
-         "NMsup", "maxASsup", "contig", "pe", "supp", "sc", "block_edge", "MAPQpri", "MAPQsup"]
-
-    return "\t".join([str(call_info[ky]) if ky in call_info else str(None) for ky in k]) + "\n"
-
-
 def breaks_from_one_side(node_set, reads, bam, insert_size, insert_stdev):
     tup = {}
     for nn, nf, np in node_set:
@@ -352,7 +345,7 @@ def single(bm, reads, bam, insert_size, insert_stdev):
 
     info.update(score_reads(bmnodes[0], reads))
 
-    return call_to_string(info)
+    return info
 
 
 def one_edge(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev):
@@ -401,7 +394,7 @@ def one_edge(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev)
     # if roi in reads:
     #     echo(info)
 
-    return call_to_string(info)
+    return info
 
 
 def multi(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev):
@@ -463,4 +456,63 @@ def call_from_block_model(bm_graph, parent_graph, reads, bam, clip_length, inser
         if len(bm.edges) == 1:
             # Easy case
             yield one_edge(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev)
+
+
+def call_to_string(call_info):
+    # Tab delimited string, in a bedpe style
+    k = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "total_reads", "cipos95A", "cipos95B",
+         "DP", "DApri", "DN", "NMpri", "SP", "EVsup", "DAsup",
+         "NMsup", "maxASsup", "contig", "pe", "supp", "sc", "block_edge", "MAPQpri", "MAPQsup", "raw_reads_10kb", "kind"]
+
+    return "\t".join([str(call_info[ky]) if ky in call_info else str(None) for ky in k]) + "\n"
+
+
+def get_raw_cov_information(r, raw_bam, regions):
+
+    # Check if side A in regions
+    ar = False
+    if data_io.intersecter(regions, r["chrA"], r["posA"], r["posA"] + 1):
+        ar = True
+    br = False
+    if data_io.intersecter(regions, r["chrB"], r["posB"], r["posB"] + 1):
+        br = True
+
+    # Put non-region first
+    kind = None
+    if (br and not ar) or (not br and ar):
+        kind = "hemi-regional"
+        if not br and ar:
+            chrA, posA, cipos95A = r["chrA"], r["posA"], r["cipos95A"]
+            r["chrA"] = r["chrB"]
+            r["posA"] = r["posB"]
+            r["cipos95A"] = r["cipos95B"]
+            r["chrB"] = chrA
+            r["posB"] = posA
+            r["cipos95B"] = cipos95A
+
+    if not ar and not br:
+        kind = "extra-regional"
+    if ar and br:
+        if r["chrA"] == r["chrB"]:
+            rA = regions[r["chrA"]].find(quicksect.Interval(r["posA"], r["posA"]+1))[0]
+            rB = regions[r["chrB"]].find(quicksect.Interval(r["posB"], r["posB"] + 1))[0]
+            if rA.start == rB.start and rA.end == rB.end:
+                kind = "intra_regional"
+            else:
+                kind = "inter-regional"
+        else:
+            kind = "inter-regional"
+
+    reads_10kb = None
+    if kind == "hemi-regional":
+
+        # Get read coverage in raw bam file +/- 10kb around A-side
+        start = r["posA"] - 10000
+        reads_10kb = len(list(raw_bam.fetch(r["chrA"], 0 if start < 0 else start, r["posA"] + 10000)))
+
+    r["kind"] = kind
+    r["raw_reads_10kb"] = reads_10kb
+
+    return call_to_string(r)
+
 
