@@ -37,18 +37,18 @@ class Scoper:
         current_pos = current_read.pos
 
         # Go through reads and check if they are in scope
-        out_of_scope = []
+        #out_of_scope = []
         while True:
             if len(self.scope) > 0:
                 p = self.scope[0].pos
                 if current_pos - p < self.max_dist:
                     break
                 out = self.scope.popleft()
-                out_of_scope.append((out.qname, out.flag, out.pos))
+                #out_of_scope.append((out.qname, out.flag, out.pos))
                 continue
             break
         self.scope.append(current_read)
-        return out_of_scope
+        #return out_of_scope
 
     @staticmethod
     def overlap(start1, end1, start2, end2):
@@ -510,7 +510,7 @@ def get_reads(infile, sub_graph, max_dist, rl, read_buffer):
 
 
 def construct_graph(args, infile, max_dist, buf_size=1e6):  # todo add option for read buffer length
-
+    click.echo("Constructing graph", err=True)
     regions = get_regions(args["include"])
 
     nodes = []
@@ -532,25 +532,9 @@ def construct_graph(args, infile, max_dist, buf_size=1e6):  # todo add option fo
     for r in infile:
 
         # written = False
-        if count % 10000 == 0:
+        if count % 50000 == 0:
             if count != 0:
-                click.echo("SV reads processed {}".format(count), err=True)
-
-        n1 = (r.qname, r.flag, r.pos)
-
-        # Add read to buffer
-        read_buffer[n1] = r
-        read_index_buffer[count] = n1
-
-        # Reduce reads in buffer if too many
-        if len(read_buffer) > buf_size:
-            del read_buffer[read_index_buffer[buf_del_index]]
-            buf_del_index += 1
-
-        count += 1
-
-        nodes.append((n1, {"p": (r.rname, r.pos)}))
-        all_flags[r.qname][(r.flag, r.pos)].append((r.rname, r.pos, r.flag))
+                click.echo("SV alignmnets processed {}".format(count), err=True)
 
         # Limit to regions
         if regions:
@@ -559,6 +543,24 @@ def construct_graph(args, infile, max_dist, buf_size=1e6):  # todo add option fo
                 rnext = infile.get_reference_name(r.rnext)
                 if rnext not in regions or len(regions[rnext].search(r.pnext, r.pnext + 1)) == 0:
                     continue
+
+        n1 = (r.qname, r.flag, r.pos)
+
+        # Add read to buffer
+        read_buffer[n1] = r
+        read_index_buffer[count] = n1
+        count += 1
+
+        # Reduce reads in buffer if too many
+        if len(read_buffer) > buf_size:
+            if buf_del_index in read_index_buffer:
+                if read_index_buffer[buf_del_index] in read_buffer:
+                    del read_buffer[read_index_buffer[buf_del_index]]
+                del read_index_buffer[buf_del_index]
+            buf_del_index += 1
+
+        nodes.append((n1, {"p": (r.rname, r.pos)}))
+        all_flags[r.qname][(r.flag, r.pos)].append((r.rname, r.pos, r.flag))
 
         out_of_scope = scope.update(r)  # Add alignment to scope
 

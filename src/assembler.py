@@ -90,7 +90,7 @@ def base_assemble(g, reads, bam, id=0):
                 if idx == 0:  # Left clip
                     for j in range(length)[::-1]:
                         base, pos, qual = seq_pos.popleft()
-                        offset = j + 1
+                        offset = j + 1 + c_pos
                         u = pred
                         v = (base, c_chrom, c_pos, offset)
                         if not v_first:
@@ -100,7 +100,7 @@ def base_assemble(g, reads, bam, id=0):
                 else:  # right clip
                     for j in range(length):
                         base, pos, qual = seq_pos.popleft()
-                        offset = j + 1
+                        offset = j + 1 + c_pos
                         u = pred
                         v = (base, c_chrom, c_pos, offset)
                         if j == length - 1:
@@ -110,7 +110,7 @@ def base_assemble(g, reads, bam, id=0):
             elif opp == 0 or opp == 7 or opp == 8:  # All match, match (=), mis-match (X)
                 for j in range(length):
                     base, c_pos, qual = seq_pos.popleft()  # New c_pos defined
-                    offset = 0
+                    offset = 0 + c_pos
                     u = pred
                     v = (base, c_chrom, c_pos, offset)
                     if idx == 0:
@@ -122,7 +122,7 @@ def base_assemble(g, reads, bam, id=0):
             elif opp == 1:  # Insertion
                 for j in range(length):
                     base, pos, qual = seq_pos.popleft()
-                    offset = j + 1
+                    offset = j + 1 + c_pos
                     u = pred
                     v = (base, c_chrom, c_pos, offset)
                     update_edge(u, v, qual, G, "insertion", strand)
