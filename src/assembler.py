@@ -4,11 +4,9 @@ are then overlapped of 'linked'.
 """
 
 import networkx as nx
-import itertools
 import difflib
-import heapq
 import numpy as np
-from collections import deque
+from collections import defaultdict
 import click
 
 
@@ -36,24 +34,43 @@ def update_edge(u, v, qual, G, kind, strand):
         G.add_edge(u, v)
 
 
-def get_ref_pos(cigar, pos):
-    # pysam get_reference_positions(full_length=True) does'nt work for last styled cigars, rolled my own here
-    p = []
-    current_pos = pos
+def get_ref_pos(cigar, pos, seq):
+    # pysam get_reference_positions(full_length=True) does'nt work for last aligner-styled cigars, hence rolled my own
+    p = []  # A list of positions
+    o = []  # A list of offsets from last seen position (only insertions or soft-clips have offsets)
+    t = []  # The block type, insertion = i, left clip = l, right clip = r, else None
+    current_pos = pos + 1
+    start = True
     for opp, length in cigar:
         if opp == 4:
-            p += [None for _ in range(length)]
-        elif opp == 0 or opp == 7 or opp == 8:  # All match, match (=), mis-match (X)
+            p += [current_pos] * length
+
+            if start:
+                t += ["l"] * length
+                o += range(length, 0, -1)
+            else:
+                t += ["r"] * length
+                o += range(length)
+
+        elif opp == 0 or opp == 7 or opp == 8 or opp == 3:  # All match, match (=), mis-match (X), N's
+            # N's are still in reference
             p += [j for j in range(current_pos, current_pos + length)]
+            o += [0] * length
+            t += [None] * length
             current_pos += length
+
         elif opp == 1:  # Insertion
-            p += [None for _ in range(length)]
+            p += [current_pos] * length
+            o += range(1, length + 1)
+            t += ["i"] * length
+            current_pos += 1  # Advance to the next alignment block
+
         elif opp == 5 or opp == 2:  # Hard clip or deletion
             current_pos += length
-        elif opp == 3:
-            p += [None for _ in range(length)]
-            current_pos += length
-    return p
+
+        start = False
+
+    return zip(seq, p, o, t)
 
 
 def base_assemble(g, reads, bam, id=0):
@@ -70,136 +87,75 @@ def base_assemble(g, reads, bam, id=0):
 
     rd = [reads[n[0]][(n[1], n[2])] for n in g.nodes()]
 
+    # rnames = set([r.qname for r in rd])
+    # roi = "simulated_reads.3.10-id293_A_chr21:46699688_B_chr1:38378863-38649"
     G = nx.DiGraph()
+
+    strand_d = {}
+    start_end_rids = defaultdict(list)
     for r in rd:
         if r.seq is None:
             continue
-        # r.get_reference_positions(full_length=True)
-        # assert all(i == j for i, j in zip(r.get_reference_positions(full_length=True),
-        # get_ref_pos(r.cigartuples, r.pos)))
-        seq_pos = deque(list(zip(r.seq, get_ref_pos(r.cigartuples, r.pos), r.query_qualities)))
-        c_chrom = r.rname
-        c_pos = r.pos
-        strand = -1 if r.flag & 16 else 1
-        pred = -1  # Start of sequence node
-        v_first = None
-        v_last = None
-        for idx, (opp, length) in enumerate(r.cigartuples):
 
-            if opp == 4:
-                if idx == 0:  # Left clip
-                    for j in range(length)[::-1]:
-                        base, pos, qual = seq_pos.popleft()
-                        offset = j + 1 + c_pos
-                        u = pred
-                        v = (base, c_chrom, c_pos, offset)
-                        if not v_first:
-                            v_first = v
-                        update_edge(u, v, qual, G, "softclip_l", strand)
-                        pred = v
-                else:  # right clip
-                    for j in range(length):
-                        base, pos, qual = seq_pos.popleft()
-                        offset = j + 1 + c_pos
-                        u = pred
-                        v = (base, c_chrom, c_pos, offset)
-                        if j == length - 1:
-                            v_last = v
-                        update_edge(u, v, qual, G, "softclip_r", strand)
-                        pred = v
-            elif opp == 0 or opp == 7 or opp == 8:  # All match, match (=), mis-match (X)
-                for j in range(length):
-                    base, c_pos, qual = seq_pos.popleft()  # New c_pos defined
-                    offset = 0 + c_pos
-                    u = pred
-                    v = (base, c_chrom, c_pos, offset)
-                    if idx == 0:
-                        v_first = v
-                    elif idx == len(r.cigartuples) - 1 and j == length - 1:
-                        v_last = v
-                    update_edge(u, v, qual, G, "match", strand)
-                    pred = v
-            elif opp == 1:  # Insertion
-                for j in range(length):
-                    base, pos, qual = seq_pos.popleft()
-                    offset = j + 1 + c_pos
-                    u = pred
-                    v = (base, c_chrom, c_pos, offset)
-                    update_edge(u, v, qual, G, "insertion", strand)
-                    pred = v
-            elif opp == 5 or opp == 2:  # Hard clip or deletion
-                continue
-            elif opp == 3:
-                break  # N
+        # (base, position, offset)
+        seq_pos = iter(zip(get_ref_pos(r.cigartuples, r.pos, r.seq), r.query_qualities))
 
-        # Add a start and end tag for each read, so reads contributing to contig sequence can be determined
-        if v_first:
-            G.node[v_first]["rid"].append((r.qname, r.flag, r.pos))
-        if v_last:
-            G.node[v_last]["rid"].append((r.qname, r.flag, r.pos))
+        rid = (r.qname, r.flag, r.pos)  # Read id
+        u, qual_u = next(seq_pos)
+        first_node = u
+        for v, qual_v in seq_pos:
 
-    G.remove_node(-1)
+            if G.has_edge(u, v):
+                G[u][v]["weight"] += int(qual_u + qual_v)
+            else:
+                G.add_edge(u, v, weight=int(qual_u + qual_v))
+            u = v
+            qual_u = qual_v
 
-    path = nx.algorithms.dag.dag_longest_path(G, weight="w")
-    bases = []
-    quals = []
-    weights = []
-    chroms = None
-    sc_support_l, sc_support_r = 0, 0
-    break_qual_l, break_qual_r = 0, 0
-    strand_l, strand_r = 0, 0
-    clipped = False
-    ref_start, ref_end = 1e12, -1
-    read_list = []
+        # Add read id to first and last in path
+        start_end_rids[first_node].append(rid)
+        start_end_rids[v].append(rid)
+        strand_d[rid] = -1 if r.flag & 16 else 1
 
-    for i in range(len(path)):
-        ni = G.node[path[i]]
-        weights.append(ni["w"])
-        base, chrom, pos, offset = path[i]
-        if ni["kind"] == "match":
-            bases.append(base.upper())
-        else:
-            bases.append(base.lower())
-        quals.append(254 if ni["w"] > 254 else ni["w"])  # Max qual is 254
+    try:
+        path = nx.algorithms.dag.dag_longest_path(G, weight="weight")
+    except:
+        cy = nx.find_cycle(G, orientation="original")
+        echo("Cycle in graph", cy)
+        for r in rd:
+            echo(bam.get_reference_name(r.rname))
+            echo(str(r).split("\t"))
+        quit()
 
-        if ni["kind"] == "softclip_l":
-            clipped = True
-            if ni["n"] > sc_support_l:
-                sc_support_l = ni["n"]
-                break_qual_l = ni["w"] / float(ni["n"])
-                strand_l = ni["strand"]
-        if ni["kind"] == "softclip_r":
-            clipped = True
-            if ni["n"] > sc_support_r:
-                sc_support_r = ni["n"]
-                break_qual_r = ni["w"] / float(ni["n"])
-                strand_r = ni["strand"]
+    longest_left_sc = path[0][2]
+    longest_right_sc = path[-1][2]
 
-        if pos < ref_start:
-            ref_start = pos
-        if pos > ref_end:
-            ref_end = pos
-        if not chroms:
-            chroms = bam.get_reference_name(chrom)
+    if longest_left_sc == 0 and longest_right_sc == 0:
+        return None  # No soft-clips, so not overlapping a break
 
-        read_list += G.node[path[i]]["rid"]
+    bases = "".join(i.upper() if k == 0 else i.lower() for i, j, k, l in path)
+    read_names = []
+    strand_counts = []
+    for item in path:
+        read_names += start_end_rids[item]
+        if item in strand_d:
+            strand_counts.append(strand_d[item])
+            del strand_d[item]  # only count once
 
-    if clipped:
-        res = {"bamrname": chroms,
-                "qual_l": break_qual_l,
-                "qual_r": break_qual_r,
-                "base_quals": quals,
-                "left_clips": sc_support_l,
-                "right_clips": sc_support_r,
-                "strand_l": strand_l,
-                "strand_r": strand_r,
-                "ref_start": ref_start,
-                "ref_end": ref_end + 1,
-                "read_names": set(read_list),
-                "contig": "".join(bases),
-                "id": id}
+    matches = [i[1] for i in path if i[2] == 0]
 
-        return res
+    res = {"bamrname": bam.get_reference_name(rd[0].rname),
+           "left_clips": longest_left_sc,
+           "right_clips": longest_right_sc,
+           "strand_l": strand_counts.count(-1),
+           "strand_r": strand_counts.count(1),
+           "ref_start": matches[0],
+           "ref_end": matches[-1] + 1,
+           "read_names": set(read_names),
+           "contig": bases,
+           "id": id}
+
+    return res
 
 
 def rev_comp(s):
@@ -237,14 +193,14 @@ def link_pair_of_assemblies(a, b, clip_length):
         left_clipped = False
         negative_strand = True if i["strand_r"] < 0 else False
         sc_support = i["right_clips"]
-        qual = int(i["qual_r"])
+
         if i["left_clips"] > i["right_clips"]:
             left_clipped = True
             negative_strand = True if i["strand_l"] < 0 else False
             sc_support = i["left_clips"]
-            qual = int(i["qual_l"])
+
         seqs.append((i["contig"], sc_support, i["bamrname"], i["ref_start"], i["ref_end"] + 1, left_clipped,
-                     negative_strand, qual))
+                     negative_strand))
 
     ainfo, binfo = seqs
     aseq, bseq = ainfo[0], binfo[0]

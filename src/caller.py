@@ -1,10 +1,11 @@
 from collections import Counter, defaultdict
-import numpy as np
+
 import click
-from src import assembler
-from src.align import data_io
 import networkx as nx
-import quicksect
+import numpy as np
+
+import assembler
+import data_io
 
 
 def echo(*args):
@@ -473,6 +474,9 @@ def get_raw_cov_information(r, raw_bam, regions):
     ar = False
     if data_io.intersecter(regions, r["chrA"], r["posA"], r["posA"] + 1):
         ar = True
+
+    if "chrB" not in r:  # todo fix this
+        return None
     br = False
     if data_io.intersecter(regions, r["chrB"], r["posB"], r["posB"] + 1):
         br = True
@@ -494,9 +498,12 @@ def get_raw_cov_information(r, raw_bam, regions):
         kind = "extra-regional"
     if ar and br:
         if r["chrA"] == r["chrB"]:
-            rA = regions[r["chrA"]].find(quicksect.Interval(r["posA"], r["posA"]+1))[0]
-            rB = regions[r["chrB"]].find(quicksect.Interval(r["posB"], r["posB"] + 1))[0]
-            if rA.start == rB.start and rA.end == rB.end:
+            # rA = regions[r["chrA"]].find_overlap(quicksect.Interval(r["posA"], r["posA"]+1))[0]
+            # rB = regions[r["chrB"]].find_overlap(quicksect.Interval(r["posB"], r["posB"] + 1))[0]
+            rA = list(regions[r["chrA"]].find_overlap(r["posA"], r["posA"] + 1))[0]
+            rB = list(regions[r["chrB"]].find_overlap(r["posB"], r["posB"] + 1))[0]
+
+            if rA[0] == rB[0] and rA[1] == rB[1]:
                 kind = "intra_regional"
             else:
                 kind = "inter-regional"

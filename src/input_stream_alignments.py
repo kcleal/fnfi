@@ -2,7 +2,8 @@ import multiprocessing
 import sys
 from threading import Thread
 
-#from align import data_io, pairing
+import click
+
 import data_io
 import pairing
 
@@ -12,9 +13,8 @@ try:
 except ImportError:
     from io import StringIO  # Python 2
     from queue import Queue
-import click
 
-# Todo Fix sam flags, some are flagged in wrong orientation sometimes
+
 # Todo Find out if reads are being dropped
 # Todo support for un-paired reads
 

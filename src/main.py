@@ -1,13 +1,14 @@
+
+import click
 import datetime
 import os
 import time
 from multiprocessing import cpu_count
 from subprocess import Popen, PIPE, check_call
 
-import click
-
-from src import find_pairs, cluster
-from align import input_stream_alignments
+import find_pairs
+import cluster
+import input_stream_alignments
 
 cpu_range = click.IntRange(min=1, max=cpu_count())
 
@@ -206,4 +207,8 @@ def call_events(**kwargs):
     # Create dest in not done so already
     mk_dest(kwargs["dest"])
     cluster.cluster_reads(kwargs)
+
+if __name__ == "__main__":
+    pass
+
 

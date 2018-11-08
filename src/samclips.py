@@ -346,6 +346,12 @@ def fixsam(template):
             if revsup:
                 out[i][2] = True
 
+        # if template["name"] == "simulated_reads.3.10-id293_A_chr21:46699688_B_chr1:38378863-38631":
+        #     echo(rev_A, rev_B)
+        #     echo(primary1)
+        #     echo(primary2)
+            # quit()
+
     out = [('pri', primary1, rev_A), ('pri', primary2, rev_B)] + out
 
     # Add read seq info back in if necessary, before reverse complementing. Check for hard clips and clip as necessary

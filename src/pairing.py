@@ -1,14 +1,10 @@
 """
 Find the best path through a collection of alignments
-Works with paried-end reads rather or single contigs. Borrows the pairing heuristic from bwa.
+Works with paried-end or single reads. Borrows the pairing heuristic from bwa.
 """
 import sys
-
-import click
 import numpy as np
-
-#from align import align_path_c
-from align import align_path_c
+import align_path_c
 
 
 def read_orientations(t, r1_len, r2_len):
@@ -128,7 +124,7 @@ if __name__ == "__main__":
     rt["data"] = [i for i in rt["data"] if i[5] in[1, 93, 102, 39, 7, 37]]
     rt["data"] = np.array(rt["data"]).astype(float)
 
-    print rt["data"].astype(int)
+    print(rt["data"].astype(int))
     print(process(rt))
 
 

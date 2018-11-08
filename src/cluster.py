@@ -1,16 +1,21 @@
-import pysam
-from collections import defaultdict, deque
-import numpy as np
-import networkx as nx
-from pybedtools import BedTool
-import quicksect
+import datetime
 import itertools
-import click
+import multiprocessing
+import quicksect
 import sys
 import time
-import datetime
-from src import caller
-from src.align import data_io
+from collections import defaultdict, deque
+from threading import Thread
+
+import click
+import networkx as nx
+import numpy as np
+import pysam
+from pybedtools import BedTool
+
+import caller
+import data_io
+
 try:
     from StringIO import StringIO
 except ImportError:
@@ -659,6 +664,62 @@ def construct_graph(args, infile, max_dist, buf_size=1e6):  # todo add option fo
     return G, read_buffer
 
 
+def setup_multi(args, worker, outf):
+    cpus = args["procs"] if args["procs"] != 0 else multiprocessing.cpu_count()
+    click.echo("fufi align runnning {} cpus".format(cpus), err=True)
+
+    the_queue = multiprocessing.JoinableQueue(maxsize=cpus + 2)
+    out_queue = multiprocessing.Queue()
+
+    the_pool = multiprocessing.Pool(args["procs"] if args["procs"] != 0 else multiprocessing.cpu_count(),
+                                    worker, (the_queue, out_queue,))
+
+    def writer_thread(q, outsam):
+        while True:
+            aln = q.get()
+            if aln == "Done":
+                break
+            elif aln == "Job failed":
+                click.echo("job failed", err=True)
+            elif len(aln) > 1:
+                outsam.write(aln)
+
+        click.echo("Writing done", err=True)
+
+    writer = Thread(target=writer_thread, args=(out_queue, outf,))
+    writer.setDaemon(True)
+    writer.start()
+    return the_queue, out_queue, writer
+
+
+def worker(queue, out_queue):
+    while True:
+        job = queue.get(True)
+
+        if job == "Done":
+            queue.task_done()
+            out_queue.put("Done")
+            break
+
+        else:
+            big_string = ""
+            for data_tuple in job:
+                read_template = data_io.make_template(*data_tuple)
+                process_template(read_template)
+                if read_template['passed']:
+                    outstring = data_io.to_output(read_template)
+                    if outstring:
+                        big_string += outstring
+                    else:
+                        pass  # No mappings
+
+            if len(big_string) > 0:
+                out_queue.put(big_string)
+            else:
+                click.echo("WARNING: no output from job.", err=True)
+        queue.task_done()
+
+
 def cluster_reads(args):
     t0 = time.time()
     infile = pysam.AlignmentFile(args["sv_bam"], "rb")
@@ -676,45 +737,52 @@ def cluster_reads(args):
 
     regions = data_io.overlap_regions(args["include"])
 
+    # Write events to output
     with outfile:
         head = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "total_reads", "cipos95A", "cipos95B",
          "DP", "DApri", "DN", "NMpri", "SP", "EVsup", "DAsup",
          "NMsup", "maxASsup", "contig", "pe", "sup", "sc", "block_edge", "MAPQpri", "MAPQsup", "raw_reads_10kb", "kind"]
 
         outfile.write("\t".join(head) + "\n")
+
+        # if args["procs"] != 1:
+        #     # Setup multiprocessing threads
+        #     the_queue, out_queue, writer = setup_multi(args, worker, outfile)
+
         c = 0
-        roi = ""
         for grp in nx.connected_component_subgraphs(G):  # Get large components, possibly multiple events
 
             reads = get_reads(infile, grp, max_dist, int(args['read_length']), read_buffer)
-            if roi in reads:
-                echo(reads.keys())
-                echo("length of grp", len(grp.nodes()))
-                echo(grp.edges(data=True))
 
-            bm = make_block_model(grp, args["insert_median"], args["insert_stdev"], args["read_length"], reads)
-            if roi in reads:
-                echo("length bm is ", len(bm.nodes()))
-            if len(bm.nodes()) == 0:
-                continue
+            if args["procs"] == 1:
 
-            if roi in reads:
-                echo([len(i) for i in list(bm.nodes())])
+                bm = make_block_model(grp, args["insert_median"], args["insert_stdev"], args["read_length"], reads)
+                if len(bm.nodes()) == 0:
+                    continue
+                bm = block_model_evidence(bm, grp)  # Annotate block model with evidence
+                for event in caller.call_from_block_model(bm, grp, reads, infile, args["clip_length"],
+                                                          args["insert_median"], args["insert_stdev"]):
+                    if event:
+                        # Collect coverage information
+                        event_string = caller.get_raw_cov_information(event, infile, regions)
+                        if event_string:
+                            outfile.write(event_string)
+                            c += 1
+            else:
+                pass
+                # Send off for multiprocessing here. Need to find a way of pickling external objects
+                # reads can be converted to a dict like object
+                # infile needs the get_reference_name function
+                # regions is a quicksetc object
+                # dta = (infile, grp, args["insert_median"], args["insert_stdev"], args["read_length"], reads,
+                #        args["clip_length"], regions)
+                # the_queue.put(dta)
 
-            bm = block_model_evidence(bm, grp)  # Annotate block model with evidence
+        # if args["procs"] != 0:
+        #     the_queue.join()  # Wait for jobs to finish
+        #     the_queue.put("Done")  # Send message to stop workers
+        #     writer.join()  # Wait for writer to closing
 
-            for event in caller.call_from_block_model(bm, grp, reads, infile, args["clip_length"], args["insert_median"],
-                                         args["insert_stdev"]):
-
-                if event:
-
-                    # Colect coverage information
-                    event_string = caller.get_raw_cov_information(event, infile, regions)
-
-                    outfile.write(event_string)
-                    c += 1
-                    if roi in reads:
-                        echo(event.replace("\t", "    "))
 
     click.echo("cluster completed in {} h:m:s\n".format(str(datetime.timedelta(seconds=int(time.time() - t0)))),
                err=True)

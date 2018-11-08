@@ -6,8 +6,8 @@ import numpy
 
 extensions = [
     Extension(
-        "align.align_path_c",
-        ["src/align/align_path_c.pyx"],
+        "align_path_c",
+        ["src/align_path_c.pyx"],
         library_dirs=[numpy.get_include()],
         language="c++",
         extra_compile_args=["-std=c++11", "-mmacosx-version-min=10.9"],
@@ -17,7 +17,7 @@ extensions = [
 
 setup(
     name="fufi",
-    version='0.2.2',
+    version='0.4.0',
     packages=find_packages(),
     ext_modules=cythonize(extensions),
     include_dirs=[numpy.get_include()],
@@ -32,7 +32,7 @@ setup(
         'natsort',
         'networkx>=2.0',
         'scikit-learn',
-        'pytest'
+        'ncls'
     ],
     entry_points='''
         [console_scripts]

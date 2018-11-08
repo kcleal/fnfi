@@ -7,9 +7,9 @@ import re
 from collections import defaultdict
 
 import click
+import ncls
 import numpy as np
 
-#from align import samclips
 import samclips
 
 
@@ -33,7 +33,7 @@ def make_template(rows, args, max_d, last_seen_chrom, fq):
             "read2_seq": None,
             "read1_q": None,
             "read2_q": None,
-            "read1_reverse": False,  # Set to true is aligner has reverse complemented the sequence
+            "read1_reverse": False,  # Set to true if aligner has reverse complemented the sequence
             "read2_reverse": False,
             "fq_read1_seq": None,
             "fq_read2_seq": None,
@@ -141,10 +141,10 @@ def sam_to_array(template):
         if template['read2_length'] is None and flag & 64:
             template['read2_length'] = seq_len
 
-        if flag & 64 and flag & 16 and not flag & 256:
+        if flag & 64 and flag & 16 and not (flag & 256 or flag & 2048):
             template["read1_reverse"] = True
 
-        if flag & 128 and flag & 16 and not flag & 256:
+        if flag & 128 and flag & 16 and not (flag & 256 or flag & 2048):
             template["read2_reverse"] = True
 
     # Save any input fastq information
@@ -275,7 +275,7 @@ def to_output(template):
     return "".join(template["name"] + "\t" + "\t".join(i) + "\n" for i in sam)
 
 
-def overlap_regions(bed):
+def overlap_regions_quicksect(bed):
     if not bed:
         return None
     regions = [i.split("\t")[:3] for i in open(bed, "r") if i[0] != "#"]
@@ -284,16 +284,39 @@ def overlap_regions(bed):
         if c not in chrom_intervals:
             chrom_intervals[c] = quicksect.IntervalTree()
         chrom_intervals[c].add(int(s), int(e))
-    click.echo("Made interval tree, showing first entries:", err=True)
-    click.echo(regions[:10], err=True)
     return chrom_intervals
+
+
+def overlap_regions(bed):
+    if not bed:
+        return None
+    regions = [i.split("\t")[:3] for i in open(bed, "r") if i[0] != "#"]
+    chrom_interval_start = defaultdict(list)
+    chrom_interval_end = defaultdict(list)
+    for c, s, e in regions:
+        chrom_interval_start[c].append(int(s))
+        chrom_interval_end[c].append(int(e))
+
+    regions = {k: ncls.NCLS(np.array(chrom_interval_start[k]),
+                            np.array(chrom_interval_end[k]),
+                            np.array(chrom_interval_start[k])) for k in chrom_interval_start}
+
+    return regions
+
+
+def intersecter_quicksect(tree, chrom, start, end):
+    if tree is None:
+        return False
+    elif chrom in tree:
+        if len(tree[chrom].find(quicksect.Interval(start, end))) > 0:
+            return True
 
 
 def intersecter(tree, chrom, start, end):
     if tree is None:
         return False
     elif chrom in tree:
-        if len(tree[chrom].find(quicksect.Interval(start, end))) > 0:
+        if len(list(tree[chrom].find_overlap(start, end))) > 0:
             return True
 
 

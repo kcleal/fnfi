@@ -16,7 +16,7 @@ from collections import defaultdict
 import click
 from subprocess import call
 
-
+click.echo("hi", err=True)
 def make_tree(bed_path):
     b = BedTool(bed_path)
     tree = defaultdict(lambda: quicksect.IntervalTree())
