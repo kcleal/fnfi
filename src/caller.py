@@ -1,9 +1,7 @@
 from collections import Counter, defaultdict
-
 import click
 import networkx as nx
 import numpy as np
-
 import assembler
 import data_io
 

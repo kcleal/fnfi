@@ -1,18 +1,9 @@
 import multiprocessing
 import sys
 from threading import Thread
-
 import click
-
 import data_io
 import pairing
-
-try:
-    from StringIO import StringIO
-    from Queue import Queue
-except ImportError:
-    from io import StringIO  # Python 2
-    from queue import Queue
 
 
 # Todo Find out if reads are being dropped
@@ -70,13 +61,12 @@ def process_reads(args):
 
     if args["outsam"] == "-" or args["output"] is None:
         click.echo("Writing alignments to stdout", err=True)
-        outsam = sys.stdout  # StringIO()
+        outsam = sys.stdout
     else:
         click.echo("Writing alignments to {}".format(args["outsam"]), err=True)
         outsam = open(args["outsam"], "w")
 
     count = 0
-    # with outsam:
 
     # Use multiprocessing:
     # https://stackoverflow.com/questions/17241663/filling-a-queue-and-managing-multiprocessing-in-python
@@ -156,4 +146,5 @@ def process_reads(args):
             if item:
                 outsam.write(item)
 
-    outsam.close()
+    if args["outsam"] != "-" or args["output"] is not None:
+        outsam.close()

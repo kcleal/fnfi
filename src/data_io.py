@@ -8,7 +8,6 @@ import os
 import click
 import ncls
 import numpy as np
-
 import samclips
 
 
@@ -142,10 +141,10 @@ def sam_to_array(template):
         r[3] = query_end  # query_start + query_end
         a.append(r)
 
-        if template['read1_length'] is None and not flag & 64:
+        if template['read1_length'] is None and flag & 64:
             template['read1_length'] = seq_len
 
-        if template['read2_length'] is None and flag & 64:
+        if template['read2_length'] is None and flag & 128:
             template['read2_length'] = seq_len
 
         if flag & 64 and flag & 16 and not (flag & 256 or flag & 2048):
@@ -170,10 +169,10 @@ def sam_to_array(template):
             a[i][2] += template['read1_length']
             a[i][3] += template['read1_length']
 
-    if a[i][3] > template["read1_length"] + template["read2_length"]:
-        click.echo((a[i][3], template["read1_length"] + template["read2_length"]), err=True)
-        click.echo((len(fq1[1]), len(fq2[1])), err=True)
-        raise ValueError
+        if a[i][3] > template["read1_length"] + template["read2_length"]:
+            click.echo((a[i][3], template["read1_length"] + template["read2_length"]), err=True)
+            click.echo((len(fq1[1]), len(fq2[1])), err=True)
+            raise ValueError
 
     template['data'] = np.array(sorted(a, key=lambda x: (x[2], -x[4]))).astype(float)
     template['chrom_ids'] = chrom_ids
@@ -321,10 +320,14 @@ def overlap_regions(bed):
 
 def intersecter(tree, chrom, start, end):
     if tree is None:
-        return False
+        return None  # Helpful for debugging
     elif chrom in tree:
         if len(list(tree[chrom].find_overlap(start, end))) > 0:
             return True
+        else:
+            return False
+    else:
+        return False
 
 
 def sam_itr(args):
@@ -337,7 +340,9 @@ def sam_itr(args):
     last_seen_chrom = None
     first_line = None
     for t in itr:
+
         t = t.decode("utf-8")
+
         if t[0] == "@":
             header_string += t
             continue
@@ -433,9 +438,6 @@ def iterate_mappings(args):
     for m, last_seen_chrom, ol in inputstream:  # Alignment
 
         nm = m[0]
-        # if nm == "simulated_reads.0.10-id217_A_chr21:46697360_B_chr6:157282148-28985":
-        #     click.echo(m, err=True)
-        #     click.echo(ol, err=True)
         if name != nm:
             if len(rows) > 0:
                 total += 1
@@ -446,11 +448,11 @@ def iterate_mappings(args):
 
             rows = []
             name = nm
+
         rows.append((m, ol))  # String, ol states if alignment overlaps ROI
 
     # Deal with last record
     if len(rows) > 0:
-        # yield Read_template(rows, args.input_kind, match_score, args.insert_size, args.insert_stdev)
         total += 1
         fq = fq_getter(fq_iter, name, args, fq_buffer)
         yield (rows, args, max_d, last_seen_chrom, fq)

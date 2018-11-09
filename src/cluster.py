@@ -575,7 +575,7 @@ def construct_graph(args, infile, max_dist, buf_size=1e6):  # todo add option fo
 
             # Four types of edges; black means definite match with overlapping soft-clips. Grey means similar
             # rearrangement with start and end co-ords on reference genome. Yellow means supplementary matches a primary
-            # read; these edges need to be checked when both primary reads are available, change to black edge or delete
+            # read; these edges need to be checked when both primary reads are available
             # Finally white edge means a read1 to read2 edge
             if ol and not sup_edge:
                 identity, prob_same = align_match(r, t)
@@ -765,7 +765,7 @@ def cluster_reads(args):
                 # Send off for multiprocessing here. Need to find a way of pickling external objects
                 # reads can be converted to a dict like object
                 # infile needs the get_reference_name function
-                # regions is a quicksetc object
+                # regions is a ncls object
                 # dta = (infile, grp, args["insert_median"], args["insert_stdev"], args["read_length"], reads,
                 #        args["clip_length"], regions)
                 # the_queue.put(dta)

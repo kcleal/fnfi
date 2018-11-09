@@ -17,7 +17,7 @@ extensions = [
 print("Found packages", find_packages(where="."))
 setup(
     name="fufi",
-    version='0.4.1',
+    version='0.4.2',
     packages=find_packages(where="."),
     ext_modules=cythonize(extensions),
     include_dirs=[numpy.get_include()],

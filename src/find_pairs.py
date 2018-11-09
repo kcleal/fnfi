@@ -10,39 +10,35 @@ import datetime
 import numpy as np
 from pybedtools import BedTool
 import os
-import ncls
-from collections import defaultdict
 import click
 from subprocess import call
 import data_io
 
 
-# def make_tree(bed_path):
-#     b = BedTool(bed_path)
-#     tree = defaultdict(lambda: quicksect.IntervalTree())
-#     for item in b:
-#         tree[item.chrom].add(item.start, item.end)
-#     return tree
+def iter_bam(bam, search):
 
+    if not search:
+        click.echo("Searching whole genome", err=True)
+        for aln in bam.fetch(until_eof=True):  # Also get unmapped reads
+            yield aln
+    else:
+        click.echo("Limiting search to {}".format(search), err=True)
+        for item in BedTool(search):
+            chrom, start, end = item[:3]
 
-def intersecter(tree, chrom, start, end):
-    if tree is None:
-        return False
-    elif chrom in tree:
-        if len(list(tree[chrom].find_overlap(start, end))) > 0:
-            return True
+            for aln in bam.fetch(reference=chrom, start=int(start), end=int(end)):  # Also get unmapped reads
+                yield aln
 
 
 def get_reads(args):
 
-    if args["search"]:
-        inc_tree = data_io.overlap_regions(args["search"])
-    if args["exclude"]:
-        exc_tree = data_io.overlap_regions(args["exclude"])
-
-    click.echo(args, err=True)
     click.echo("Input bam is {}".format(args["bam"]), err=True)
     bam = pysam.AlignmentFile(args["bam"], "rb")
+    bam_i = iter_bam(bam, args["search"])
+
+    if args["exclude"]:
+        click.echo("Excluding {} from search".format(args["exclude"]), err=True)
+        exc_tree = data_io.overlap_regions(args["exclude"])
 
     clip_length = args["clip_length"]
     if args["dest"]:
@@ -58,19 +54,11 @@ def get_reads(args):
     read_names = set([])
     insert_size = []
     read_length = []
-    for r in bam.fetch(until_eof=True):  # Also get unmapped reads
+    for r in bam_i:
 
         chrom = bam.get_reference_name(r.rname)
         if args["exclude"]:  # Skip exclude regions
-            #if chrom in exc_tree and len(exc_tree[chrom].search(r.pos, r.pos + 1)) > 0:
             if data_io.intersecter(exc_tree, chrom, r.pos, r.pos + 1):
-                continue
-
-        if args["search"]:  # Limit search to regions
-            if not data_io.intersecter(inc_tree, chrom, r.pos, r.pos + 1):
-            # if chrom not in inc_tree:
-            #     continue
-            # elif len(inc_tree[chrom].search(r.pos, r.pos + 1)) == 0:
                 continue
 
         if r.flag & 1280:
@@ -80,7 +68,7 @@ def get_reads(args):
 
         if len(insert_size) < 10000 and r.flag & 2:
             tmpl = abs(r.template_length)
-            if tmpl < 10000:
+            if tmpl < 1000:
                 insert_size.append(tmpl)
                 read_length.append(r.infer_read_length())
 
