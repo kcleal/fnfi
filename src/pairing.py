@@ -1,9 +1,11 @@
 """
 Find the best path through a collection of alignments
-Works with paried-end or single reads. Borrows the pairing heuristic from bwa.
+Works with paried-end reads rather or single contigs. Borrows the pairing heuristic from bwa.
 """
 import sys
 import numpy as np
+import os
+import click
 import align_path_c
 
 

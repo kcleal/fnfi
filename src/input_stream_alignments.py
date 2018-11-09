@@ -63,12 +63,17 @@ def worker(queue, out_queue):
 
 def process_reads(args):
 
-    if args["output"] == "-" or args["output"] is None:
+    if not args["include"]:
+        args["bias"] = 1.0
+    else:
+        click.echo("Elevating alignments in --include with --bias {}".format(args["bias"]), err=True)
+
+    if args["outsam"] == "-" or args["output"] is None:
         click.echo("Writing alignments to stdout", err=True)
         outsam = sys.stdout  # StringIO()
     else:
-        click.echo("Writing alignments to {}".format(args["output"]), err=True)
-        outsam = open(args["output"], "w")
+        click.echo("Writing alignments to {}".format(args["outsam"]), err=True)
+        outsam = open(args["outsam"], "w")
 
     count = 0
     # with outsam:

@@ -2,15 +2,22 @@
 Iterate over the output from last and send data object back to the pair_reads_from_LAST script
 """
 
-import quicksect
 import re
 from collections import defaultdict
-
+import os
 import click
 import ncls
 import numpy as np
 
 import samclips
+
+
+def mk_dest(d):
+    if d is not None and not os.path.exists(d):
+        try:
+            os.mkdir(d)
+        except:
+            raise OSError("Couldn't create directory")
 
 
 def make_template(rows, args, max_d, last_seen_chrom, fq):
@@ -275,16 +282,16 @@ def to_output(template):
     return "".join(template["name"] + "\t" + "\t".join(i) + "\n" for i in sam)
 
 
-def overlap_regions_quicksect(bed):
-    if not bed:
-        return None
-    regions = [i.split("\t")[:3] for i in open(bed, "r") if i[0] != "#"]
-    chrom_intervals = {}
-    for c, s, e in regions:
-        if c not in chrom_intervals:
-            chrom_intervals[c] = quicksect.IntervalTree()
-        chrom_intervals[c].add(int(s), int(e))
-    return chrom_intervals
+# def overlap_regions_quicksect(bed):
+#     if not bed:
+#         return None
+#     regions = [i.split("\t")[:3] for i in open(bed, "r") if i[0] != "#"]
+#     chrom_intervals = {}
+#     for c, s, e in regions:
+#         if c not in chrom_intervals:
+#             chrom_intervals[c] = quicksect.IntervalTree()
+#         chrom_intervals[c].add(int(s), int(e))
+#     return chrom_intervals
 
 
 def overlap_regions(bed):
@@ -304,12 +311,12 @@ def overlap_regions(bed):
     return regions
 
 
-def intersecter_quicksect(tree, chrom, start, end):
-    if tree is None:
-        return False
-    elif chrom in tree:
-        if len(tree[chrom].find(quicksect.Interval(start, end))) > 0:
-            return True
+# def intersecter_quicksect(tree, chrom, start, end):
+#     if tree is None:
+#         return False
+#     elif chrom in tree:
+#         if len(tree[chrom].find(quicksect.Interval(start, end))) > 0:
+#             return True
 
 
 def intersecter(tree, chrom, start, end):

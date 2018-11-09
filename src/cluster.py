@@ -1,7 +1,6 @@
 import datetime
 import itertools
 import multiprocessing
-import quicksect
 import sys
 import time
 from collections import defaultdict, deque
@@ -142,17 +141,6 @@ def echo(*args):
     click.echo(args, err=True)
 
 
-def get_regions(reg_path):
-    if not reg_path:
-        return None
-    else:
-        f = BedTool(reg_path)
-        regions = defaultdict(lambda: quicksect.IntervalTree())
-        for item in f:
-            regions[item.chrom].add(item.start, item.end)
-        return regions
-
-
 def align_match(r, t):
 
     def extent(a):
@@ -241,7 +229,7 @@ def explore_local(starting_nodes, large_component, other_nodes, look_for, upper_
     return set().union(*additional_nodes.values())
 
 
-def make_nuclei(g, reads):
+def make_nuclei(g):
     """
     Nuclei are primarily clusters of overlapping soft-clipped reads. If none are found in the graph, try using
     supplementary edges, or finally grey edges only.
@@ -374,7 +362,7 @@ def blockmodel(G, partitions):
     return M
 
 
-def make_block_model(g, insert_size, insert_stdev, read_length, reads):
+def make_block_model(g, insert_size, insert_stdev, read_length):
     """
     Make a block model representation of the graph. The nodes in the block model correspond to each side of a SV. The
     edge attributes give the different types of support between nodes i.e. number of split reads, soft-clips, pairs.
@@ -393,7 +381,7 @@ def make_block_model(g, insert_size, insert_stdev, read_length, reads):
     :return: Block model, nodes correspond to break sites, edges give connectivity information with other break sites
     """
     # Make the inner block-model
-    sub_grp = make_nuclei(g, reads)
+    sub_grp = make_nuclei(g)
 
     sub_grp_cc = list(nx.connected_component_subgraphs(sub_grp))
 
@@ -516,7 +504,8 @@ def get_reads(infile, sub_graph, max_dist, rl, read_buffer):
 
 def construct_graph(args, infile, max_dist, buf_size=1e6):  # todo add option for read buffer length
     click.echo("Constructing graph", err=True)
-    regions = get_regions(args["include"])
+
+    regions = data_io.overlap_regions(args["include"])
 
     nodes = []
     edges = []
@@ -544,9 +533,9 @@ def construct_graph(args, infile, max_dist, buf_size=1e6):  # todo add option fo
         # Limit to regions
         if regions:
             rname = infile.get_reference_name(r.rname)
-            if rname not in regions or len(regions[rname].search(r.pos, r.pos + 1)) == 0:
+            if not data_io.intersecter(regions, rname, r.pos, r.pos + 1):
                 rnext = infile.get_reference_name(r.rnext)
-                if rnext not in regions or len(regions[rnext].search(r.pnext, r.pnext + 1)) == 0:
+                if not data_io.intersecter(regions, rnext, r.pnext, r.pnext + 1):
                     continue
 
         n1 = (r.qname, r.flag, r.pos)
@@ -692,36 +681,39 @@ def setup_multi(args, worker, outf):
     return the_queue, out_queue, writer
 
 
-def worker(queue, out_queue):
-    while True:
-        job = queue.get(True)
-
-        if job == "Done":
-            queue.task_done()
-            out_queue.put("Done")
-            break
-
-        else:
-            big_string = ""
-            for data_tuple in job:
-                read_template = data_io.make_template(*data_tuple)
-                process_template(read_template)
-                if read_template['passed']:
-                    outstring = data_io.to_output(read_template)
-                    if outstring:
-                        big_string += outstring
-                    else:
-                        pass  # No mappings
-
-            if len(big_string) > 0:
-                out_queue.put(big_string)
-            else:
-                click.echo("WARNING: no output from job.", err=True)
-        queue.task_done()
+# def worker(queue, out_queue):
+#     while True:
+#         job = queue.get(True)
+#
+#         if job == "Done":
+#             queue.task_done()
+#             out_queue.put("Done")
+#             break
+#
+#         else:
+#             big_string = ""
+#             for data_tuple in job:
+#                 read_template = data_io.make_template(*data_tuple)
+#                 process_template(read_template)
+#                 if read_template['passed']:
+#                     outstring = data_io.to_output(read_template)
+#                     if outstring:
+#                         big_string += outstring
+#                     else:
+#                         pass  # No mappings
+#
+#             if len(big_string) > 0:
+#                 out_queue.put(big_string)
+#             else:
+#                 click.echo("WARNING: no output from job.", err=True)
+#         queue.task_done()
 
 
 def cluster_reads(args):
     t0 = time.time()
+
+    data_io.mk_dest(args["dest"])
+
     infile = pysam.AlignmentFile(args["sv_bam"], "rb")
     max_dist = int(args["insert_median"] + (5 * args["insert_stdev"]))  # > distance reads drop out of clustering scope
     click.echo("Maximum clustering distance is {}".format(max_dist), err=True)
@@ -756,7 +748,7 @@ def cluster_reads(args):
 
             if args["procs"] == 1:
 
-                bm = make_block_model(grp, args["insert_median"], args["insert_stdev"], args["read_length"], reads)
+                bm = make_block_model(grp, args["insert_median"], args["insert_stdev"], args["read_length"])
                 if len(bm.nodes()) == 0:
                     continue
                 bm = block_model_evidence(bm, grp)  # Annotate block model with evidence

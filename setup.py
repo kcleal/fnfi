@@ -6,7 +6,7 @@ import numpy
 
 extensions = [
     Extension(
-        "align_path_c",
+        "src.align_path_c",
         ["src/align_path_c.pyx"],
         library_dirs=[numpy.get_include()],
         language="c++",
@@ -14,11 +14,11 @@ extensions = [
         extra_link_args=["-std=c++11"]
         ),
 ]
-
+print("Found packages", find_packages(where="."))
 setup(
     name="fufi",
     version='0.4.0',
-    packages=find_packages(),
+    packages=find_packages(where="."),
     ext_modules=cythonize(extensions),
     include_dirs=[numpy.get_include()],
     include_package_data=True,
@@ -27,12 +27,11 @@ setup(
         'numpy',
         'pandas',
         'pysam',
-        'quicksect',
         'pybedtools',
         'natsort',
         'networkx>=2.0',
         'scikit-learn',
-        'ncls'
+        'ncls',
     ],
     entry_points='''
         [console_scripts]

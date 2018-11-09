@@ -6,32 +6,42 @@ Note regions are intersected by only the mapping 'position' of the read in the .
 
 import pysam
 import time
-import click
 import datetime
 import numpy as np
 from pybedtools import BedTool
 import os
-import quicksect
+import ncls
 from collections import defaultdict
 import click
 from subprocess import call
+import data_io
 
-click.echo("hi", err=True)
-def make_tree(bed_path):
-    b = BedTool(bed_path)
-    tree = defaultdict(lambda: quicksect.IntervalTree())
-    for item in b:
-        tree[item.chrom].add(item.start, item.end)
-    return tree
+
+# def make_tree(bed_path):
+#     b = BedTool(bed_path)
+#     tree = defaultdict(lambda: quicksect.IntervalTree())
+#     for item in b:
+#         tree[item.chrom].add(item.start, item.end)
+#     return tree
+
+
+def intersecter(tree, chrom, start, end):
+    if tree is None:
+        return False
+    elif chrom in tree:
+        if len(list(tree[chrom].find_overlap(start, end))) > 0:
+            return True
 
 
 def get_reads(args):
 
     if args["search"]:
-        inc_tree = make_tree(args["search"])
+        inc_tree = data_io.overlap_regions(args["search"])
     if args["exclude"]:
-        exc_tree = make_tree(args["exclude"])
+        exc_tree = data_io.overlap_regions(args["exclude"])
 
+    click.echo(args, err=True)
+    click.echo("Input bam is {}".format(args["bam"]), err=True)
     bam = pysam.AlignmentFile(args["bam"], "rb")
 
     clip_length = args["clip_length"]
@@ -52,13 +62,15 @@ def get_reads(args):
 
         chrom = bam.get_reference_name(r.rname)
         if args["exclude"]:  # Skip exclude regions
-            if chrom in exc_tree and len(exc_tree[chrom].search(r.pos, r.pos + 1)) > 0:
+            #if chrom in exc_tree and len(exc_tree[chrom].search(r.pos, r.pos + 1)) > 0:
+            if data_io.intersecter(exc_tree, chrom, r.pos, r.pos + 1):
                 continue
 
         if args["search"]:  # Limit search to regions
-            if chrom not in inc_tree:
-                continue
-            elif len(inc_tree[chrom].search(r.pos, r.pos + 1)) == 0:
+            if not data_io.intersecter(inc_tree, chrom, r.pos, r.pos + 1):
+            # if chrom not in inc_tree:
+            #     continue
+            # elif len(inc_tree[chrom].search(r.pos, r.pos + 1)) == 0:
                 continue
 
         if r.flag & 1280:
@@ -111,9 +123,13 @@ def convert_to_fastq(args, outname):
 
 def process(args):
     t0 = time.time()
+
+    data_io.mk_dest(args["dest"])
+
     insert_median, insert_stdev, read_length, out_name = get_reads(args)
     convert_to_fastq(args, out_name)
     click.echo("Collected reads in {} h:m:s\n".format(str(datetime.timedelta(seconds=int(time.time() - t0)))), err=True)
+
     return {"insert_median": insert_median,
             "insert_stdev": insert_stdev,
             "read_length": read_length,
