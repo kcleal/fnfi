@@ -329,10 +329,10 @@ def fixsam(template):
         else:
             out.append(['sup', l, False])  # Supplementary
 
-    if primary1 is None or primary2 is None:
+    if primary1 is None or primary2 is None and template["paired_end"]:
         return []  # Todo deal with unmapped read or unpaired
 
-    if paired:
+    if paired and template["paired_end"]:
 
         rev_A, rev_B = set_mate_flag(primary1, primary2, r1l, r2l, max_d,
                                      template["read1_reverse"], template["read2_reverse"], template)

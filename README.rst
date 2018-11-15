@@ -13,13 +13,17 @@ Install using::
     # Or
     $ pip install .
 
-Requires python>=2.7, c++11 compatible compiler. For macosx, minimum version is 10.9
+Requires python>=2.7, c++11 compatible compiler. For macosx, minimum version is 10.9. Python packages needed: click,
+numpy, pandas, pysam, pybedtools, natsort, networkx, scikit-learn, ncls.
+
+Recommended aligners: bwa mem, lastal
 
 Usage
 -----
 Sub commands are::
 
     $ fnfi run
+    $ fnfi find-reads
     $ fnfi align
     $ fnfi call-events
 
@@ -30,6 +34,6 @@ Basic usage command is::
 For help use::
 
     $ fufi --help
-    $ fufi {run|align|call-events} --help
+    $ fufi find-reads|run|align|call-events --help
 
 For more extensive documentation refer to the manual.

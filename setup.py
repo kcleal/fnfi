@@ -6,8 +6,8 @@ import numpy
 
 extensions = [
     Extension(
-        "src.align_path_c",
-        ["src/align_path_c.pyx"],
+        "fnfi.align_path_c",
+        ["fnfi/align_path_c.pyx"],
         library_dirs=[numpy.get_include()],
         language="c++",
         extra_compile_args=["-std=c++11", "-mmacosx-version-min=10.9"],
@@ -17,7 +17,7 @@ extensions = [
 print("Found packages", find_packages(where="."))
 setup(
     name="fnfi",
-    version='0.4.2',
+    version='0.5.0',
     packages=find_packages(where="."),
     ext_modules=cythonize(extensions),
     include_dirs=[numpy.get_include()],
@@ -29,12 +29,12 @@ setup(
         'pysam',
         'pybedtools',
         'natsort',
-        'networkx>=2.0',
+        'networkx',
         'scikit-learn',
         'ncls',
     ],
     entry_points='''
         [console_scripts]
-        fnfi=src.main:cli
+        fnfi=fnfi.main:cli
     ''',
 )

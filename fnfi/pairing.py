@@ -54,22 +54,25 @@ def process(rt):
     """
     r1_len = rt['read1_length']
     r2_len = rt['read2_length']
-
-    if r2_len is None and r1_len:
+    if not rt["paired_end"]:
         single_end = True
         contig_l = r1_len
-    elif r1_len is None and r2_len:
-        single_end = True
-        contig_l = r2_len
-    elif r1_len is None and r2_len is None:
-        return False
     else:
-        single_end = False
-        contig_l = r1_len + r2_len
+        if r2_len is None and r1_len:
+            single_end = True
+            contig_l = r1_len
+        elif r1_len is None and r2_len:
+            single_end = True
+            contig_l = r2_len
+        elif r1_len is None and r2_len is None:
+            return False
+        else:
+            single_end = False
+            contig_l = r1_len + r2_len
 
     mu, sigma = rt['isize']
 
-    pp = rt["pairing_params"]
+    pp = map(float, rt["pairing_params"])
     max_insertion = pp[0]
     min_aln = pp[1]
     max_homology = pp[2]
@@ -85,6 +88,7 @@ def process(rt):
     table = rt['data'][:, range(8)]
 
     if not single_end:
+
         # If it is unclear which read comes first this function can be used to generate both orientations:
         both_ways = []
         for r in read_orientations(table, r1_len, r2_len):

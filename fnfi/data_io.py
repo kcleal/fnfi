@@ -26,6 +26,7 @@ def make_template(rows, args, max_d, last_seen_chrom, fq):
             "match_score": args["match_score"],
             "pairing_params": (args["max_insertion"], args["min_aln"], args["max_overlap"], args["ins_cost"],
                                args["ol_cost"], args["inter_cost"], args["u"]),
+            "paired_end": args["paired"] == "True",
             "inputdata": rows,
             "bias": args["bias"],
             "read1_length": None,
@@ -104,20 +105,6 @@ def sam_to_array(template):
         else:
             r[7] = 1 if flag & 64 else 2
 
-        # Save record of map orientation for determining if sequence has been reverse complemented
-        # if (flag & 64) and (not flag & 2304) and (len(l[8]) > 1):
-        #     template["map1_q"] = l[8].upper()
-        # if (flag & 128) and (not flag & 2304) and (len(l[8]) > 1):
-        #     template["map2_q"] = l[8].upper()
-
-        if template["read1_seq"] is None and (flag & 64) and (len(l[8]) > 1):
-            template["read1_seq"] = l[8]
-            template["read1_q"] = l[9]
-
-        if template["read2_seq"] is None and (flag & 128) and (len(l[8]) > 1):
-            template["read2_seq"] = l[8]
-            template["read2_q"] = l[9]
-
         tags = [i.split(":") for i in l[11:]]
         seq_len = len(l[8])
 
@@ -141,17 +128,32 @@ def sam_to_array(template):
         r[3] = query_end  # query_start + query_end
         a.append(r)
 
-        if template['read1_length'] is None and flag & 64:
-            template['read1_length'] = seq_len
+        if template["paired_end"]:
+            if template["read1_seq"] is None and (flag & 64) and (len(l[8]) > 1):
+                template["read1_seq"] = l[8]
+                template["read1_q"] = l[9]
 
-        if template['read2_length'] is None and flag & 128:
-            template['read2_length'] = seq_len
+            if template["read2_seq"] is None and (flag & 128) and (len(l[8]) > 1):
+                template["read2_seq"] = l[8]
+                template["read2_q"] = l[9]
 
-        if flag & 64 and flag & 16 and not (flag & 256 or flag & 2048):
-            template["read1_reverse"] = True
+            if template['read1_length'] is None and flag & 64:
+                template['read1_length'] = seq_len
 
-        if flag & 128 and flag & 16 and not (flag & 256 or flag & 2048):
-            template["read2_reverse"] = True
+            if template['read2_length'] is None and flag & 128:
+                template['read2_length'] = seq_len
+
+            if flag & 64 and flag & 16 and not (flag & 256 or flag & 2048):
+                template["read1_reverse"] = True
+
+            if flag & 128 and flag & 16 and not (flag & 256 or flag & 2048):
+                template["read2_reverse"] = True
+
+        else:
+            if template["read1_seq"] is None and not (flag & 256) and (len(l[8]) > 1):
+                template["read1_seq"] = l[8]
+                template["read1_q"] = l[9]
+                template["read1_length"] = len(l[8])
 
     # Save any input fastq information
     fq1, fq2 = template["inputfq"]
@@ -164,15 +166,15 @@ def sam_to_array(template):
         template["fq_read2_q"] = fq2[2]
         template["read2_length"] = len(fq2[1])
 
-    for i in range(len(a)):
-        if a[i][7] == 2:  # Second in pair
-            a[i][2] += template['read1_length']
-            a[i][3] += template['read1_length']
-
-        if a[i][3] > template["read1_length"] + template["read2_length"]:
-            click.echo((a[i][3], template["read1_length"] + template["read2_length"]), err=True)
-            click.echo((len(fq1[1]), len(fq2[1])), err=True)
-            raise ValueError
+    if template["paired_end"]:  # Increment the contig position of read 2
+        for i in range(len(a)):
+            if a[i][7] == 2:  # Second in pair
+                a[i][2] += template['read1_length']
+                a[i][3] += template['read1_length']
+            if a[i][3] > template["read1_length"] + template["read2_length"]:
+                click.echo((a[i][3], template["read1_length"] + template["read2_length"]), err=True)
+                click.echo((len(fq1[1]), len(fq2[1])), err=True)
+                raise ValueError
 
     template['data'] = np.array(sorted(a, key=lambda x: (x[2], -x[4]))).astype(float)
     template['chrom_ids'] = chrom_ids
@@ -424,7 +426,6 @@ def iterate_mappings(args):
     total = 0
     name = ""
     rows = []
-    dropped = 0
     header_string = next(inputstream)
     header_string += "@RG\tID:0\tSM:0\tPU:lane1\tPL:ILLUMINA\tLB:0\n"  # Todo deal with read group information
 
@@ -434,7 +435,7 @@ def iterate_mappings(args):
     fq_iter = fq_reader(args)
 
     max_d = args["insert_median"] + 4*args["insert_stdev"]  # Separation distance threshold to call a pair discordant
-
+    last_seen_chrom = None
     for m, last_seen_chrom, ol in inputstream:  # Alignment
 
         nm = m[0]
@@ -457,5 +458,4 @@ def iterate_mappings(args):
         fq = fq_getter(fq_iter, name, args, fq_buffer)
         yield (rows, args, max_d, last_seen_chrom, fq)
 
-    click.echo("Total dropped " + str(dropped) + "\n", err=True)
     click.echo("Total processed " + str(total) + "\n", err=True)

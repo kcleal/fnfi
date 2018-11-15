@@ -54,17 +54,18 @@ def worker(queue, out_queue):
 
 def process_reads(args):
 
+    click.echo("fnfi reading data from {}".format(args["sam"]), err=True)
     if not args["include"]:
         args["bias"] = 1.0
     else:
         click.echo("Elevating alignments in --include with --bias {}".format(args["bias"]), err=True)
 
-    if args["outsam"] == "-" or args["output"] is None:
+    if args["output"] == "-" or args["output"] is None:
         click.echo("Writing alignments to stdout", err=True)
         outsam = sys.stdout
     else:
-        click.echo("Writing alignments to {}".format(args["outsam"]), err=True)
-        outsam = open(args["outsam"], "w")
+        click.echo("Writing alignments to {}".format(args["output"]), err=True)
+        outsam = open(args["output"], "w")
 
     count = 0
 

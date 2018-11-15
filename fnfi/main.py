@@ -3,10 +3,10 @@ import datetime
 import os
 import time
 from multiprocessing import cpu_count
-from subprocess import Popen, PIPE, check_call
+from subprocess import Popen, PIPE, check_call, call
 import sys
 proj_path = os.path.dirname(__file__)
-sys.path.append(proj_path)
+# sys.path.append(proj_path)
 
 import find_pairs
 import cluster
@@ -16,7 +16,7 @@ import data_io
 cpu_range = click.IntRange(min=1, max=cpu_count())
 
 defaults = {
-            "clip_length": 21,
+            "clip_length": 21.,
             "mapper": "bwamem",
             "map_script": None,
             "procs": 1,
@@ -25,23 +25,26 @@ defaults = {
             "search": None,
             "exclude": None,
             "include": None,
-            "insert_median": 210,
-            "insert_stdev": 175,
-            "read_length": 125,
-            "max_insertion": 100,
-            "min_aln": 17,
-            "max_overlap": 100,
-            "ins_cost": 1,
-            "ol_cost": 3,
-            "inter_cost": 2,
-            "u": 9,
-            "match_score": 1,
+            "paired": "True",
+            "insert_median": 210.,
+            "insert_stdev": 175.,
+            "read_length": 125.,
+            "max_insertion": 100.,
+            "min_aln": 17.,
+            "max_overlap": 100.,
+            "ins_cost": 1.,
+            "ol_cost": 3.,
+            "inter_cost": 2.,
+            "u": 9.,
+            "match_score": 1.,
             "bias": 1.15,
             "output": "-",
             "outsam": "-",
             "fq1": None,
             "fq2": None
             }
+
+align_args = {}
 
 
 def pipeline(kwargs):
@@ -72,7 +75,7 @@ def pipeline(kwargs):
         kwargs["fq2"] = kwargs["out_pfix"] + "2.fq"
 
     kwargs["sam"] = process.stdout
-    kwargs["outsam"] = kwargs["out_pfix"] + ".sam"
+    kwargs["output"] = kwargs["out_pfix"] + ".sam"
 
     input_stream_alignments.process_reads(kwargs)
     process.kill()
@@ -148,6 +151,12 @@ def sort_and_index(kwargs):
 
 # Interface:
 # ----------------------------------------------------------------------------------------------------------------------
+def apply_ctx(ctx, kwargs):
+    ctx.ensure_object(dict)
+    if len(ctx.obj) == 0:  # When run is invoked from cmd line, else run was invoked from test function
+        for k, v in defaults.items() + kwargs.items():
+            ctx.obj[k] = v
+    return ctx
 
 
 @click.group(chain=False, invoke_without_command=False)
@@ -177,10 +186,7 @@ $4 threads to use""", default=None, type=click.Path(exists=True))
 @click.pass_context
 def run_command(ctx, **kwargs):
     """Run the fusion-finder pipeline."""
-    ctx.ensure_object(dict)
-    if len(ctx.obj) == 0:  # When run is invoked from cmd line, else run was invoked from test function
-        for k, v in defaults.items() + kwargs.items():
-            ctx.obj[k] = v
+    ctx = apply_ctx(ctx, kwargs)
     pipeline(ctx.obj)
 
 
@@ -195,40 +201,46 @@ def run_command(ctx, **kwargs):
               default=None, type=click.Path(exists=True))
 @click.option('--dest', help="Destination folder to use/create for saving results. Defaults to directory of input bam",
               default=None, type=click.Path())
-def find_reads(**kwargs):
+@click.pass_context
+def find_reads(ctx, **kwargs):
     """Filters input .bam for read-pairs that are discordant or have a soft-clip of length >= '--clip-length'"""
     # insert_median, insert_stdev, read_length, out_name
-    return find_pairs.process(kwargs)
+    ctx = apply_ctx(ctx, kwargs)
+    return find_pairs.process(ctx.obj)
 
 
 @cli.command("align")
 @click.argument("sam", type=click.File('r'), required=True)
 @click.argument("output", required=False, type=click.Path())
+@click.option("--paired", help="Paired end reads or single", default=defaults["paired"],
+              type=click.Choice(["True", "False"]), show_default=True)
 @click.option("--insert-median", help="Template insert size", default=defaults["insert_median"], type=float)
 @click.option("--insert-stdev",  help="Template standard-deviation", default=defaults["insert_stdev"], type=float)
 @click.option("--read-length",  help="Length of a read in base-pairs", default=defaults["read_length"], type=float)
 @click.option("--fq1",  help="Fastq reads 1, used to add soft-clips to all hard-clipped read 1 alignments",
-              default=defaults["fq1"], type=click.Path(exists=True))
+              default=defaults["fq1"], type=click.Path())
 @click.option("--fq2",  help="Fastq reads 2, used to add soft-clips to all hard-clipped read 2 alignments",
-              default=defaults["fq2"], type=click.Path(exists=True))
-@click.option("--max_insertion", help="Maximum insertion within read", default=defaults["max_insertion"], type=int)
-@click.option("--min-aln", help="Minimum alignment length", default=defaults["min_aln"], type=int)
-@click.option("--max-overlap", help="Maximum overlap between successive alignments", default=defaults["max_overlap"], type=int)
+              default=defaults["fq2"], type=click.Path())
+@click.option("--max_insertion", help="Maximum insertion within read", default=defaults["max_insertion"], type=float)
+@click.option("--min-aln", help="Minimum alignment length", default=defaults["min_aln"], type=float)
+@click.option("--max-overlap", help="Maximum overlap between successive alignments", default=defaults["max_overlap"], type=float)
 @click.option("--ins-cost", help="Insertion cost", default=defaults["ins_cost"], type=float)
 @click.option("--ol-cost", help="Overlapping alignment cost", default=defaults["ol_cost"], type=float)
 @click.option("--inter-cost", help="Cost of inter-chromosomal jump", default=defaults["inter_cost"], type=float)
 @click.option("--u", help="Pairing heuristic cost", default=defaults["u"], type=float)
-@click.option("--match-score", help="Matched base score used for input sam reads", default=defaults["match_score"], type=int)
+@click.option("--match-score", help="Matched base score used for input sam reads", default=defaults["match_score"], type=float)
 @click.option("-p", "--procs", help="Processors to use", type=cpu_range, default=1)
 @click.option('--include', help=".bed file, elevate alignment scores in these regions. Determined by '--bias'",
               default=None, type=click.Path(exists=True))
 @click.option("--bias", help="""Multiply match score by bias if alignment falls within regions .bed file.
 Unused if .bed not provided.""", default=defaults["bias"], type=float)
-def fufi_aligner(**kwargs):
+@click.pass_context
+def fnfi_aligner(ctx, **kwargs):
     """Choose an optimal set of alignments from from a collection of candidate alignments.
     If reads are paired, alignments must be sorted by read-name while the bit flag
     designates read 1 vs read 2."""
-    input_stream_alignments.process_reads(kwargs)
+    ctx = apply_ctx(ctx, kwargs)
+    input_stream_alignments.process_reads(ctx.obj)
 
 
 @cli.command("call-events")
@@ -245,26 +257,78 @@ def fufi_aligner(**kwargs):
 @click.option('--include', help=".bed file, limit calls to regions.", default=None, type=click.Path(exists=True))
 @click.option('--dest', help="Folder to use/create for saving results. Defaults to directory of input bam directory",
               default=None, type=click.Path())
-def call_events(**kwargs):
+@click.pass_context
+def call_events(ctx, **kwargs):
     """Clusters reads into SV-events. Takes as input the original .bam file, and a .bam file with only sv-like reads."""
     # Create dest in not done so already
-    cluster.cluster_reads(kwargs)
+    ctx = apply_ctx(ctx, kwargs)
+    cluster.cluster_reads(ctx.obj)
 
 
-@cli.command("test-run", context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
+@cli.command("run-tests", context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
 @click.option('--dest', required=True,  help="Folder to use/create for saving results.",
               default=None, type=click.Path())
-@click.option('--reference', required=True, type=click.Path(exists=True),  help="Path to reference for mapper to use")
+@click.option('--reference', required=True, type=click.Path(),  help="Path to reference for mapper to use")
 @click.pass_context
 def test_run_command(ctx, **kwargs):
-    """Clusters reads into SV-events. Takes as input the original .bam file, and a .bam file with only sv-like reads.
-    Anny additional fusion-finder option can also be supplied, e.g. adding --procs 4 can be used"""
-    # Create dest in not done so already
+    """Runs fnfi commands on test data using default options.
+    fnfi defaults for the run command can be modified by adding the respective option, e.g. add --procs 4"""
+
+    def update_ctx(kwargs, ctx):
+        for k, v in defaults.items() + kwargs.items() + {ctx.args[i][2:]: ctx.args[i + 1] for i in
+                                                         xrange(0, len(ctx.args), 2)}.items():
+            if isinstance(v, str):
+                if v.isdigit():
+                    if int(v) == float(v):
+                        v = int(v)
+                    else:
+                        v = float(v)
+            ctx.obj[k] = v
+
     ctx.ensure_object(dict)
 
     data_io.mk_dest(kwargs["dest"])
+    tests_path = os.path.dirname(__file__) + "/tests"
+    click.echo("Input data for tests: {}".format(tests_path), err=True)
 
-    tests_path = os.path.dirname(proj_path) + "/tests"
+    # Test aligner using single reads
+    f1 = "{}/long_contigs.fa".format(tests_path)
+    success = False
+    try:
+        # call("bwa mem -a -Y {ref} {f} > {dest}/long_contigs.bwa.sam".format(ref=kwargs["reference"], f=f1, dest=kwargs["dest"]),
+        #      shell=True)
+
+        com = "lastal -k2 -l11 -D10000 -K8 -C8 -i10M -r1 -q4 -a6 -b1 -P1 {ref} {f} \
+        | last-map-probs -m 1 -s 1 | maf-convert -f {tp}/hg38.dict sam > {dest}/long_contigs.last.sam".format(tp=tests_path, f=f1,
+                                              ref=kwargs["reference"],
+                                              dest=kwargs["dest"],
+                                              )
+        call(com, shell=True)
+        # call("bwa mem -a -Y {ref} {f} > {dest}/long_contigs.sam".format(ref=kwargs["reference"], f=f1,
+        #                                                                 dest=kwargs["dest"]),
+        #      shell=True)
+
+        success = True
+    except OSError as e:
+        click.echo("Skipping fnfi align test", err=True)
+        if e.errno == os.errno.ENOENT:
+            # handle file not found error.
+            click.echo("bwa not found", err=True)
+        else:
+            # Something else went wrong while trying to run bwa
+            raise
+    if success:
+        sam = "{dest}/long_contigs.sam".format(dest=kwargs["dest"])
+        output = "{dest}/long_contigs.fnfi.sam".format(dest=kwargs["dest"])
+
+        update_ctx(kwargs, ctx)
+
+        call("fnfi align --paired False {sam} > {o}".format(sam=sam, o=output), shell=True)
+
+
+    quit()
+
+    # Test run command using paired-end data
     b1 = "{}/bwa.0.5.srt.bam".format(tests_path)
 
     click.echo(b1)
@@ -273,15 +337,8 @@ def test_run_command(ctx, **kwargs):
     kwargs["bam"] = b1
     kwargs["include"] = inc
 
-    for k, v in defaults.items() + kwargs.items() + {ctx.args[i][2:]: ctx.args[i+1] for i in xrange(0, len(ctx.args), 2)}.items():
-        if isinstance(v, str):
-            if v.isdigit():
-                if int(v) == float(v):
-                    v = int(v)
-                else:
-                    v = float(v)
-        ctx.obj[k] = v
-
+    update_ctx(kwargs, ctx)
+    click.echo(ctx.obj)
     ctx.invoke(run_command)
 
 
