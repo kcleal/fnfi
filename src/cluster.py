@@ -655,7 +655,7 @@ def construct_graph(args, infile, max_dist, buf_size=1e6):  # todo add option fo
 
 def setup_multi(args, worker, outf):
     cpus = args["procs"] if args["procs"] != 0 else multiprocessing.cpu_count()
-    click.echo("fufi align runnning {} cpus".format(cpus), err=True)
+    click.echo("fnfi align runnning {} cpus".format(cpus), err=True)
 
     the_queue = multiprocessing.JoinableQueue(maxsize=cpus + 2)
     out_queue = multiprocessing.Queue()

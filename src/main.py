@@ -21,7 +21,7 @@ defaults = {
             "map_script": None,
             "procs": 1,
             "dest": None,
-            "post_fix": "fufi",
+            "post_fix": "fnfi",
             "search": None,
             "exclude": None,
             "include": None,
@@ -46,7 +46,7 @@ defaults = {
 
 def pipeline(kwargs):
     t0 = time.time()
-    click.echo("Running fufi pipeline", err=True)
+    click.echo("Running fnfi pipeline", err=True)
     click.echo(kwargs, err=True)
     if kwargs["bam"] is None:
         raise IOError("Error: Input bam is None")
@@ -94,7 +94,7 @@ def pipeline(kwargs):
 
     cluster.cluster_reads(kwargs)
 
-    click.echo("fufi run completed in {} h:m:s\n".format(str(datetime.timedelta(seconds=int(time.time() - t0)))),
+    click.echo("fnfi run completed in {} h:m:s\n".format(str(datetime.timedelta(seconds=int(time.time() - t0)))),
                err=True)
 
 
@@ -186,7 +186,7 @@ def run_command(ctx, **kwargs):
 
 @cli.command("find-reads")
 @click.argument('bam', required=True, type=click.Path(exists=True))
-@click.option('--post-fix', help="Post fix to tag temp files with. Default is to use 'fufi'", default='fufi', type=str)
+@click.option('--post-fix', help="Post fix to tag temp files with. Default is to use 'fnfi'", default='fnfi', type=str)
 @click.option('--clip-length', help="Minimum soft-clip length; >= threshold are kept", default=defaults["clip_length"], type=int,
               show_default=True)
 @click.option("-p", "--procs", help="Processors to use", type=cpu_range, default=defaults["procs"], show_default=True)

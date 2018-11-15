@@ -73,7 +73,7 @@ def process_reads(args):
     if args["procs"] != 1:
 
         cpus = args["procs"] if args["procs"] != 0 else multiprocessing.cpu_count()
-        click.echo("fufi align runnning {} cpus".format(cpus), err=True)
+        click.echo("fnfi align runnning {} cpus".format(cpus), err=True)
 
         the_queue = multiprocessing.JoinableQueue(maxsize=cpus+2)
         out_queue = multiprocessing.Queue()

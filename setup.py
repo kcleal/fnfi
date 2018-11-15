@@ -16,7 +16,7 @@ extensions = [
 ]
 print("Found packages", find_packages(where="."))
 setup(
-    name="fufi",
+    name="fnfi",
     version='0.4.2',
     packages=find_packages(where="."),
     ext_modules=cythonize(extensions),
@@ -35,6 +35,6 @@ setup(
     ],
     entry_points='''
         [console_scripts]
-        fufi=src.main:cli
+        fnfi=src.main:cli
     ''',
 )
