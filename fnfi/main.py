@@ -295,30 +295,22 @@ def test_run_command(ctx, **kwargs):
     f1 = "{}/long_contigs.fa".format(tests_path)
     success = False
     try:
-        # call("bwa mem -a -Y {ref} {f} > {dest}/long_contigs.bwa.sam".format(ref=kwargs["reference"], f=f1, dest=kwargs["dest"]),
-        #      shell=True)
-
-        com = "lastal -k2 -l11 -D10000 -K8 -C8 -i10M -r1 -q4 -a6 -b1 -P1 {ref} {f} \
-        | last-map-probs -m 1 -s 1 | maf-convert -f {tp}/hg38.dict sam > {dest}/long_contigs.last.sam".format(tp=tests_path, f=f1,
+        com = "lastal -D1000 -K3 -C3 -r1 -q4 -a6 -b1 -P1 {ref} {f} \
+         | maf-convert -f {tp}/hg38.dict sam > {dest}/long_contigs.last.sam".format(tp=tests_path, f=f1,
                                               ref=kwargs["reference"],
                                               dest=kwargs["dest"],
                                               )
         call(com, shell=True)
-        # call("bwa mem -a -Y {ref} {f} > {dest}/long_contigs.sam".format(ref=kwargs["reference"], f=f1,
-        #                                                                 dest=kwargs["dest"]),
-        #      shell=True)
-
         success = True
+
     except OSError as e:
-        click.echo("Skipping fnfi align test", err=True)
+        click.echo("Skipping align test using longer contigs", err=True)
         if e.errno == os.errno.ENOENT:
-            # handle file not found error.
-            click.echo("bwa not found", err=True)
+            click.echo("No such file or directory", err=True)
         else:
-            # Something else went wrong while trying to run bwa
-            raise
+            raise SystemError("Something went wrong")
     if success:
-        sam = "{dest}/long_contigs.sam".format(dest=kwargs["dest"])
+        sam = "{dest}/long_contigs.last.sam".format(dest=kwargs["dest"])
         output = "{dest}/long_contigs.fnfi.sam".format(dest=kwargs["dest"])
 
         update_ctx(kwargs, ctx)
