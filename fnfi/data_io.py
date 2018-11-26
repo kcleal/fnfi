@@ -123,7 +123,6 @@ def sam_to_array(template):
             query_end = 0
         else:
             query_start, query_end = get_start_end(cigar)
-
             # If current alignment it not primary, and on different strand from primary, count from other end
             if flag & 256 or flag & 2048:
                 if flag & 64 and (template["read1_reverse"] != flag & 16):
