@@ -5,9 +5,10 @@ import time
 from multiprocessing import cpu_count
 from subprocess import Popen, PIPE, check_call, call
 import sys
-proj_path = os.path.dirname(__file__)
+# proj_path = os.path.dirname(__file__)
 # sys.path.append(proj_path)
-
+# click.echo(proj_path, err=True)
+# click.echo(os.environ['PATH'], err=True)
 import find_pairs
 import cluster
 import input_stream_alignments
@@ -214,22 +215,22 @@ def find_reads(ctx, **kwargs):
 @click.argument("output", required=False, type=click.Path())
 @click.option("--paired", help="Paired end reads or single", default=defaults["paired"],
               type=click.Choice(["True", "False"]), show_default=True)
-@click.option("--insert-median", help="Template insert size", default=defaults["insert_median"], type=float)
-@click.option("--insert-stdev",  help="Template standard-deviation", default=defaults["insert_stdev"], type=float)
-@click.option("--read-length",  help="Length of a read in base-pairs", default=defaults["read_length"], type=float)
+@click.option("--insert-median", help="Template insert size", default=defaults["insert_median"], type=float, show_default=True)
+@click.option("--insert-stdev",  help="Template standard-deviation", default=defaults["insert_stdev"], type=float, show_default=True)
+@click.option("--read-length",  help="Length of a read in base-pairs", default=defaults["read_length"], type=float, show_default=True)
 @click.option("--fq1",  help="Fastq reads 1, used to add soft-clips to all hard-clipped read 1 alignments",
               default=defaults["fq1"], type=click.Path())
 @click.option("--fq2",  help="Fastq reads 2, used to add soft-clips to all hard-clipped read 2 alignments",
               default=defaults["fq2"], type=click.Path())
-@click.option("--max_insertion", help="Maximum insertion within read", default=defaults["max_insertion"], type=float)
-@click.option("--min-aln", help="Minimum alignment length", default=defaults["min_aln"], type=float)
-@click.option("--max-overlap", help="Maximum overlap between successive alignments", default=defaults["max_overlap"], type=float)
-@click.option("--ins-cost", help="Insertion cost", default=defaults["ins_cost"], type=float)
+@click.option("--max_insertion", help="Maximum insertion within read", default=defaults["max_insertion"], type=float, show_default=True)
+@click.option("--min-aln", help="Minimum alignment length", default=defaults["min_aln"], type=float, show_default=True)
+@click.option("--max-overlap", help="Maximum overlap between successive alignments", default=defaults["max_overlap"], type=float, show_default=True)
+@click.option("--ins-cost", help="Insertion cost", default=defaults["ins_cost"], type=float, show_default=True)
 @click.option("--ol-cost", help="Overlapping alignment cost", default=defaults["ol_cost"], type=float)
-@click.option("--inter-cost", help="Cost of inter-chromosomal jump", default=defaults["inter_cost"], type=float)
-@click.option("--u", help="Pairing heuristic cost", default=defaults["u"], type=float)
-@click.option("--match-score", help="Matched base score used for input sam reads", default=defaults["match_score"], type=float)
-@click.option("-p", "--procs", help="Processors to use", type=cpu_range, default=1)
+@click.option("--inter-cost", help="Cost of inter-chromosomal jump", default=defaults["inter_cost"], type=float, show_default=True)
+@click.option("--u", help="Pairing heuristic cost", default=defaults["u"], type=float, show_default=True)
+@click.option("--match-score", help="Matched base score used for input sam reads", default=defaults["match_score"], type=float, show_default=True)
+@click.option("-p", "--procs", help="Processors to use", type=cpu_range, default=1, show_default=True)
 @click.option('--include', help=".bed file, elevate alignment scores in these regions. Determined by '--bias'",
               default=None, type=click.Path(exists=True))
 @click.option("--bias", help="""Multiply match score by bias if alignment falls within regions .bed file.

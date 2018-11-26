@@ -321,6 +321,9 @@ def fixsam(template):
               "RG:Z:0", "SM:Z:0", "PU:Z:lane1", "PL:Z:ILLUMINA", "LB:Z:0",
               ]
 
+        # Turn off not-primary flag
+        l[0] = str(set_bit(int(l[0]), 8, 0))
+
         if aln_info_0:
             if rid == 1:
                 primary1 = l

@@ -124,6 +124,20 @@ def sam_to_array(template):
         else:
             query_start, query_end = get_start_end(cigar)
 
+            # If current alignment it not primary, and on different strand from primary, count from other end
+            if flag & 256 or flag & 2048:
+                if flag & 64 and (template["read1_reverse"] != flag & 16):
+                    # Count from end
+                    new_end = template["read1_length"] - query_start
+                    new_start = template["read1_length"] - query_end
+                    query_start = new_start
+                    query_end = new_end
+                elif flag & 128 and  (template["read2_reverse"] != flag & 16):
+                    new_end = template["read2_length"] - query_start
+                    new_start = template["read2_length"] - query_end
+                    query_start = new_start
+                    query_end = new_end
+
         r[2] = query_start
         r[3] = query_end  # query_start + query_end
         a.append(r)
@@ -271,13 +285,19 @@ def to_output(template):
 
     if len(sam) == 0:  # Todo fix unmapped reads
         # print("No alignments")
+        # click.echo(template, err=True)
+        click.echo("Unmapped read error", err=True)
+        # quit()
         return None
 
-    if len(sam) == 1:  # Todo deal with these
+    #if len(sam) == 1:  # Todo deal with these
         # print("Single alignment only")
-        return None
+    #    return None
 
     if any(i[0] == "*" or i[4] == "*" for i in sam):  # Unformatted cigar or unformatted cigarstring
+        click.echo("Unformatted cigar error", err=True)
+        # click.echo(sam, err=True)
+        # quit()
         return None
 
     return "".join(template["name"] + "\t" + "\t".join(i) + "\n" for i in sam)
