@@ -4,11 +4,6 @@ import os
 import time
 from multiprocessing import cpu_count
 from subprocess import Popen, PIPE, check_call, call
-import sys
-# proj_path = os.path.dirname(__file__)
-# sys.path.append(proj_path)
-# click.echo(proj_path, err=True)
-# click.echo(os.environ['PATH'], err=True)
 import find_pairs
 import cluster
 import input_stream_alignments
@@ -41,6 +36,7 @@ defaults = {
             "bias": 1.15,
             "output": "-",
             "outsam": "-",
+            "replace_hardclips": "True",
             "fq1": None,
             "fq2": None
             }
@@ -161,6 +157,7 @@ def apply_ctx(ctx, kwargs):
 
 
 @click.group(chain=False, invoke_without_command=False)
+@click.version_option()
 def cli():
     """Fusion-finder calls structural variants from input .bam or .fastq files."""
     pass
@@ -218,6 +215,7 @@ def find_reads(ctx, **kwargs):
 @click.option("--insert-median", help="Template insert size", default=defaults["insert_median"], type=float, show_default=True)
 @click.option("--insert-stdev",  help="Template standard-deviation", default=defaults["insert_stdev"], type=float, show_default=True)
 @click.option("--read-length",  help="Length of a read in base-pairs", default=defaults["read_length"], type=float, show_default=True)
+@click.option("--replace-hardclips",  help="Replace hard-clips with soft-clips when possible", default=defaults["replace_hardclips"], type=click.Choice(["True", "False"]), show_default=True)
 @click.option("--fq1",  help="Fastq reads 1, used to add soft-clips to all hard-clipped read 1 alignments",
               default=defaults["fq1"], type=click.Path())
 @click.option("--fq2",  help="Fastq reads 2, used to add soft-clips to all hard-clipped read 2 alignments",
@@ -336,5 +334,18 @@ def test_run_command(ctx, **kwargs):
 
 
 if __name__ == "__main__":
-    print("Done")
-    pass
+
+
+    df = defaults
+    print df
+
+
+    #@click.argument("sam", type=click.File('r'), required=True)
+    #@click.argument("output", required=False, type=click.Path())
+
+    df["sam"] = open("/Users/kezcleal/Documents/Data/fusion_finder_development/Split_read_simulator/paired_end_with_one_split/pairs.bwamem_allf.sam", "r")
+    df["output"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/Split_read_simulator/sv_gen_mapped/test.fnfi.unsrt.sam"
+
+    input_stream_alignments.process_reads(df)
+
+    #call("diff /Users/kezcleal/Documents/Data/fusion_finder_development/Split_read_simulator/paired_end_with_one_split/pairs.fnfi.unsrt.sam /Users/kezcleal/Documents/Data/fusion_finder_development/Split_read_simulator/sv_gen_mapped/test.fnfi.unsrt.sam", shell=True)

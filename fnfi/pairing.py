@@ -110,11 +110,13 @@ def process(rt):
     if int(length) < int(second_best):
         sys.stderr.write("WARNING: primary path < secondary path\n")
 
-    if rt["name"] == "chr22-840746":
-        click.echo(path, err=True)
-        for idx, row in enumerate(rt["data"].astype(int)):
-            click.echo((idx, list(row)), err=True)
-        click.echo(rt["data"].astype(int).tolist(), err=True)
+    # if rt["name"] == "chr22-163734":
+    #     click.echo(path, err=True)
+    #     for idx, row in enumerate(rt["data"].astype(int)):
+    #         click.echo((idx, list(row)), err=True)
+    #     for idx, row in enumerate(rt["inputdata"]):
+    #         click.echo(row, err=True)
+    #     click.echo(rt["data"].astype(int).tolist(), err=True)
 
     return path, length, second_best, dis_to_normal, norm_pairings
 
@@ -127,6 +129,7 @@ if __name__ == "__main__":
     array = np.array
     # [chrom, pos, query_start, query_end, aln_score, row_index, strand, read, num_mis-matches]
     rt["data"] = [[0, 20462937, 0, 66, 61, 0, -1, 1, 0], [0, 20459467, 0, 35, 35, 1, 1, 1, 0], [0, 20462492, 100, 200, 95, 2, 1, 2, 0]]
+    rt["data"] = [[0, 50629342, 0, 100, 96, 0, 1, 1, 0], [0, 50639946, 0, 100, 96, 1, 1, 1, 0], [0, 50630825, 144, 200, 56, 2, -1, 2, 0], [0, 50629781, 160, 200, 40, 3, -1, 2, 0]]
 
     # rt["data"] = [i for i in rt["data"] if i[5] in[1, 93, 102, 39, 7, 37]]
     rt["data"] = np.array(rt["data"]).astype(float)

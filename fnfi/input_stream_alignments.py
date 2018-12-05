@@ -4,24 +4,22 @@ from threading import Thread
 import click
 import data_io
 import pairing
-
+import time
+import datetime
+import c_io_funcs
 
 # Todo Find out if reads are being dropped
-# Todo support for un-paired reads
 
 
 def process_template(read_template):
-    data_io.sam_to_array(read_template)
-
-    # if read_template["name"] == "simulated_reads.0.10-id217_A_chr21:46697360_B_chr6:157282148-28985":
-    #     click.echo(read_template["read1_length"], err=True)
-    #     click.echo(read_template["read2_length"], err=True)
-    #     for item in read_template["data"].tolist():
-    #         click.echo(item, err=True)
+    c_io_funcs.sam_to_array(read_template)
 
     res = pairing.process(read_template)
     if res:
-        data_io.apply_filter(read_template, *res)
+        read_template["passed"] = True
+        c_io_funcs.add_scores(read_template, *res)
+        c_io_funcs.choose_supplementary(read_template)
+        c_io_funcs.score_alignments(read_template, read_template["ri"], read_template['rows'], read_template['data'])
 
 
 def worker(queue, out_queue):
@@ -53,8 +51,9 @@ def worker(queue, out_queue):
 
 
 def process_reads(args):
-
+    t0 = time.time()
     click.echo("fnfi reading data from {}".format(args["sam"]), err=True)
+    click.echo("Replace hard clips == {}".format(args["replace_hardclips"] == "True"), err=True)
     if not args["include"]:
         args["bias"] = 1.0
     else:
@@ -76,6 +75,7 @@ def process_reads(args):
         cpus = args["procs"] if args["procs"] != 0 else multiprocessing.cpu_count()
         click.echo("fnfi align runnning {} cpus".format(cpus), err=True)
 
+        # Todo joinable queue is not efficient, other options?
         the_queue = multiprocessing.JoinableQueue(maxsize=cpus+2)
         out_queue = multiprocessing.Queue()
 
@@ -131,7 +131,6 @@ def process_reads(args):
             count += 1
             temp = data_io.make_template(*data_tuple)
             process_template(temp)
-
             if temp['passed']:
                 to_write.append(data_io.to_output(temp))
 
@@ -149,3 +148,6 @@ def process_reads(args):
 
     if args["outsam"] != "-" or args["output"] is not None:
         outsam.close()
+
+    click.echo("fnfi aln completed in {} h:m:s\n".format(str(datetime.timedelta(seconds=int(time.time() - t0)))),
+               err=True)

@@ -13,11 +13,29 @@ extensions = [
         extra_compile_args=["-std=c++11", "-mmacosx-version-min=10.9"],
         extra_link_args=["-std=c++11"]
         ),
+
+    Extension(
+            "fnfi.c_io_funcs",
+            ["fnfi/c_io_funcs.pyx"],
+            library_dirs=[numpy.get_include()],
+            language="c++",
+            extra_compile_args=["-std=c++11", "-mmacosx-version-min=10.9"],
+            extra_link_args=["-std=c++11"]
+            ),
+
+    Extension(
+            "fnfi.c_samflags",
+            ["fnfi/c_samflags.pyx"],
+            library_dirs=[numpy.get_include()],
+            language="c",
+            # extra_compile_args=["-std=c++11", "-mmacosx-version-min=10.9"],
+            # extra_link_args=["-std=c++11"]
+            ),
 ]
 print("Found packages", find_packages(where="."))
 setup(
     name="fnfi",
-    version='0.5.2',
+    version='0.6.3',
     packages=find_packages(where="."),
     ext_modules=cythonize(extensions),
     include_dirs=[numpy.get_include()],

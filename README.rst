@@ -1,6 +1,6 @@
-====================
-Fusion finder - fnfi
-====================
+====
+fnfi
+====
 
 fnfi is a collection of tools for detection of structural variants, originally designed for identifying telomere fusions.
 
