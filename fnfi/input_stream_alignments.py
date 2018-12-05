@@ -15,6 +15,7 @@ def process_template(read_template):
     c_io_funcs.sam_to_array(read_template)
 
     res = pairing.process(read_template)
+
     if res:
         read_template["passed"] = True
         c_io_funcs.add_scores(read_template, *res)
@@ -131,6 +132,7 @@ def process_reads(args):
             count += 1
             temp = data_io.make_template(*data_tuple)
             process_template(temp)
+
             if temp['passed']:
                 to_write.append(data_io.to_output(temp))
 

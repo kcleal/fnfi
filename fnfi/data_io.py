@@ -343,14 +343,14 @@ def overlap_regions(bed):
 
 def intersecter(tree, chrom, start, end):
     if tree is None:
-        return None  # Helpful for debugging
+        return 0
     elif chrom in tree:
         if len(list(tree[chrom].find_overlap(start, end))) > 0:
-            return True
+            return 1
         else:
-            return False
+            return 0
     else:
-        return False
+        return 0
 
 
 def sam_itr(args):

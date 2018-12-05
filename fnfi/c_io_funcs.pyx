@@ -108,12 +108,12 @@ def sam_to_array(template):
 
         for k, t, v in tags:
             if k == "NM":
-                arr[idx, 8] = int(v)
+                arr[idx, 8] = float(v)
             elif k == "AS":
                 if overlaps[idx]:
                     arr[idx, 4] = float(v) * bias
                 else:
-                    arr[idx, 4] = int(v)
+                    arr[idx, 4] = float(v)
 
         cigar = l[4]
         if not cigar:
@@ -204,8 +204,8 @@ def choose_supplementary(template):
 
     cdef np.ndarray[np.float_t, ndim=2] d = template['data'][actual_rows, :]
 
-    cdef float read1_max = 0
-    cdef float read2_max = 0
+    cdef float read1_max = 0.
+    cdef float read2_max = 0.
     cdef int i = 0
     cdef int read1_alns = 0
     cdef int read2_alns = 0
@@ -237,7 +237,8 @@ def choose_supplementary(template):
             m = read1_max
         else:
             m = read2_max
-        if d[i, 4] == m:  # Primary, next best s
+
+        if np.round(d[i, 4], 3) == m:  # Primary, next best s
             template['score_mat'][loc] += [True, 0]
         else:
             template['score_mat'][loc] += [False, 0]
