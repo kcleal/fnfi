@@ -117,7 +117,7 @@ def process(rt):
     #     for idx, row in enumerate(rt["inputdata"]):
     #         click.echo(row, err=True)
     #     click.echo(rt["data"].astype(int).tolist(), err=True)
-
+    # Todo second best can be negative?
     return path, length, second_best, dis_to_normal, norm_pairings
 
 

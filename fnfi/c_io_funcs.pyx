@@ -5,6 +5,7 @@
 
 import numpy as np
 cimport numpy as np
+cimport cython
 import click
 
 DTYPE = np.float
@@ -54,13 +55,29 @@ def get_start_end(str cigar):
     return start, end
 
 
-def sam_to_array(template):
+def check_for_good_pairing(data):
 
+    # Check to see if this pair of alignments needs pairing
+    cdef int flag1 = int(data[0][0])
+    cdef int flag2 = int(data[1][0])
+
+    if (flag1 & 16 and not flag2 & 16) or (not flag1 & 16 and flag2 & 16):
+        # Read is already uniquely paired, skip pairing
+        #rows, float path_score, float second_best, float dis_to_normal, int norm_pairings
+        return True
+
+
+def sam_to_array(template):
+    # Todo if only one alignment for read1 and read2, no need to try pairing, just send sam to output (eleveate scores still?)
     data, overlaps = zip(*template["inputdata"])
+
+    # if len(data) == 2:
+    #     check_for_good_pairing(data)
+
     template["inputdata"] = [[i[1], i[2], i[3]] + i[4].strip().split("\t") for i in data]
 
     # [chrom, pos, query_start, query_end, aln_score, row_index, strand, read, num_mis-matches]
-    cdef np.ndarray[np.float_t, ndim=2] arr = np.zeros((len(data), 9), dtype=np.float)
+    cdef np.ndarray[np.float_t, ndim=2] arr = np.zeros((len(data), 9))  # , dtype=np.float
 
     chrom_ids = {}
 
@@ -184,6 +201,7 @@ def sam_to_array(template):
             if arr[j, 7] == 2:  # Second in pair
                 arr[j, 2] += template['read1_length']
                 arr[j, 3] += template['read1_length']
+
             if arr[j, 3] > template["read1_length"] + template["read2_length"]:
                 click.echo((template["read1_length"], template["read2_length"]), err=True)
                 click.echo(arr[j, 3], err=True)
@@ -192,25 +210,27 @@ def sam_to_array(template):
     template['data'] = np.array(sorted(arr, key=lambda x: (x[2], -x[4]))).astype(float)
     template['chrom_ids'] = chrom_ids
 
-    # if template["name"] == u'HISEQ1:9:H8962ADXX:1:1101:1144:90311':
-    #     click.echo(template["read1_seq"], err=True)
-    #     quit()
     del template["inputfq"]
 
 
 def choose_supplementary(template):
+
+    cdef int j = 0
     template['ri'] = dict(zip(template['data'][:, 5], range(len(template['data']))))  # Map of row_index and array index
-    actual_rows = [template['ri'][j] for j in template['rows']]
 
-    cdef np.ndarray[np.float_t, ndim=2] d = template['data'][actual_rows, :]
+    cdef np.ndarray[long, ndim=1] actual_rows = np.array([template['ri'][j] for j in template['rows']]).astype(int)
+    cdef np.ndarray[double, ndim=2] d = template['data']  #[actual_rows, :]  # np.float_t is double
+    # d = np.round(d, 2)  # Need to be careful of float rounding errors
 
-    cdef float read1_max = 0.
-    cdef float read2_max = 0.
+    cdef double read1_max = 0
+    cdef double read2_max = 0
     cdef int i = 0
+
     cdef int read1_alns = 0
     cdef int read2_alns = 0
 
-    for i in range(len(d)):
+    for j in range(len(actual_rows)):
+        i = actual_rows[j]
         if d[i, 7] == 1 and d[i, 4] > read1_max:
             read1_max = d[i, 4]
             read1_alns += 1
@@ -218,14 +238,18 @@ def choose_supplementary(template):
             read2_max = d[i, 4]
             read2_alns += 1
 
+    # read1_max = np.round(read1_max, 2)
+    # read2_max = np.round(read2_max, 2)
+
     template["splitters"] = [read1_alns > 1, read2_alns > 1]
     template['score_mat']["splitter"] = [read1_alns - 1, read2_alns - 1]
 
     ids_to_name = {v: k for k, v in template["chrom_ids"].items()}
 
     locs = []
-    cdef float m
-    for i in range(len(d)):
+    cdef np.float_t m = 0.
+    for j in range(len(actual_rows)):
+        i = actual_rows[j]
 
         loc = "{}-{}-{}-{}".format(ids_to_name[int(d[i, 0])], int(d[i, 1]), int(d[i, 6]), int(d[i, 7]) )
         locs.append(loc)
@@ -238,12 +262,16 @@ def choose_supplementary(template):
         else:
             m = read2_max
 
-        if np.round(d[i, 4], 3) == m:  # Primary, next best s
+        if d[i, 4] == m:  # Primary, next best s
             template['score_mat'][loc] += [True, 0]
         else:
             template['score_mat'][loc] += [False, 0]
     template['locs'] = locs
-
+    # if template["name"] == "simulated_genome_reads.2-chr17-5":
+    #     click.echo(d.astype(int), err=True)
+    #     click.echo(actual_rows, err=True)
+    #     click.echo(template["score_mat"], err=True)
+    #     quit()
 
 def score_alignments(template, ri, np.ndarray[np.int64_t, ndim=1]  template_rows, np.ndarray[DTYPE_t, ndim=2] template_data):
     # Scans all alignments for each query, slow for long reads but ok for short read data

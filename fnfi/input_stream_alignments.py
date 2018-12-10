@@ -15,7 +15,9 @@ def process_template(read_template):
     c_io_funcs.sam_to_array(read_template)
 
     res = pairing.process(read_template)
-
+    # click.echo(read_template["name"], err=True)
+    # click.echo(read_template["data"].astype(int), err=True)
+    # click.echo("", err=True)
     if res:
         read_template["passed"] = True
         c_io_funcs.add_scores(read_template, *res)
@@ -141,6 +143,8 @@ def process_reads(args):
 
                     if item is not None:
                         outsam.write(item)
+
+
 
                 to_write = []
 

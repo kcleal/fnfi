@@ -62,7 +62,7 @@ cdef bwa_pair_score(float pos1, float pos2, float strand1, float strand2, float 
     :param sigma: insert size std
     :param match_score: score gained from a matched base
     :param u: constant parameter, worst cost possible
-    :return: The bwa pairing cost (float), wher the read is FR (bool)
+    :return: The bwa pairing cost (float), whether the read is FR (int)
     """
     cdef float d, prob, c
     cdef int proper_pair = 0
@@ -73,7 +73,7 @@ cdef bwa_pair_score(float pos1, float pos2, float strand1, float strand2, float 
         return u, proper_pair
 
     # prob is probability of observing an insert size larger than d assuming a normal distribution
-    d = abs(pos1 - pos2)
+    d = abs(pos1 - pos2)  # Todo what if insert size is negative, when reads overlap into one another
     if d > (mu + 4*sigma):
         prob = 1e-9
     else:
@@ -81,9 +81,9 @@ cdef bwa_pair_score(float pos1, float pos2, float strand1, float strand2, float 
 
     # Log4 is calculated as log(x)/log(base)
     c = min([-match_score * (log(prob)/log(4)), u])
-    if c < 8:
+    if c < 8:  # Todo, is this reasonable?
         proper_pair = 1
-    # bwa is [-match_score * math.log(prob, 4), 9]
+
     return c, proper_pair
 
 
@@ -99,7 +99,8 @@ def optimal_path(
                  float hom_cost=3,
                  float inter_cost=2,
                  float U=9,
-                 float match_score=1):
+                 float match_score=1,
+                 float clipping_penalty=5):
     """
     The scoring has become quite complicated.
      = Last alignment score - jump cost
@@ -132,11 +133,14 @@ def optimal_path(
     cdef float chr1, pos1, start1, end1, score1, row_index1, strand1, r1,\
                chr2, pos2, start2, end2, score2, row_index2, strand2, r2, \
                micro_h, ins, best_score, next_best_score, best_normal_orientation, current_score, total_cost,\
-               S, sc, max_s, path_score, cst, jump_cost
+               S, sc, max_s, path_score, jump_cost
 
     # Deal with first score
     for i in range(segments.shape[0]):
-        node_scores[i] = segments[i, 4] - (segments[i, 2] * ins_cost)
+        if segments[i, 2] > 0:
+            node_scores[i] = segments[i, 4] - (segments[i, 2] * ins_cost) - clipping_penalty
+        else:
+            node_scores[i] = segments[i, 4]
     #pred[0] = -1
     pred.fill(-1)
     nb_node_scores.fill(-1e6)  # Must set to large negative, otherwise a value of zero can imply a path to that node
@@ -233,12 +237,16 @@ def optimal_path(
     # Basically calculates what the best and secondary scores are for the 'virtual' end node
     cdef float node_to_end_cost
     cdef float secondary
-
+    cdef float right_clip = 0
+    cdef float cst = 0
     path_score = -(contig_length * ins_cost)  # Worst case
     secondary = float(path_score)
     end_i = -1
     for i in range(segments.shape[0]):
-        cst = (ins_cost * (contig_length - segments[i, 3]))
+
+        right_clip = contig_length - segments[i, 3]
+        if right_clip > 0:
+            cst = (ins_cost * right_clip) + clipping_penalty
 
         node_to_end_cost = node_scores[i] - cst
 
