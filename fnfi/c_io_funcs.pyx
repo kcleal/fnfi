@@ -55,26 +55,55 @@ def get_start_end(str cigar):
     return start, end
 
 
-def check_for_good_pairing(data):
-
+def check_for_good_pairing(r1, r2, name, max_d):
     # Check to see if this pair of alignments needs pairing
-    cdef int flag1 = int(data[0][0])
-    cdef int flag2 = int(data[1][0])
+    cdef int aflag = int(r1[0])
+    cdef int bflag = int(r2[0])
 
-    if (flag1 & 16 and not flag2 & 16) or (not flag1 & 16 and flag2 & 16):
-        # Read is already uniquely paired, skip pairing
-        #rows, float path_score, float second_best, float dis_to_normal, int norm_pairings
-        return True
+    # Check if rnext and pnext set properly
+    cdef int p1, p2
+    cdef int proper_pair = 0
+    cdef int dn = 250
+    if r1[2] == r2[6] and r2[2] == r1[6]:  # Might not generalize for mappers other than bwa mem
+
+        p1 = int(r1[2])
+        p2 = int(r2[2])
+
+        if (aflag & 16 and not bflag & 16) or (not aflag & 16 and bflag & 16):  # Not on same strand
+
+            if abs(p1 - p2) < max_d:
+                # Check for FR or RF orientation
+                if (p1 < p2 and (not aflag & 16) and (bflag & 16)) or (p2 <= p1 and (not bflag & 16) and (aflag & 16)):
+                    proper_pair = 1
+
+        if proper_pair == 1:
+            dn = 0
+
+        tags = "SP:Z:0\tDA:i:100\tDP:Z:250.0\tDN:Z:{}.\tPS:Z:250.0\tNP:Z:1.0".format(dn)
+        r1.append(tags)
+        r2.append(tags)
+
+        r1 = name + "\t" + "\t".join(r1) + "\n"
+        r2 = name + "\t" + "\t".join(r2) + "\n"
+        pair = r1 + r2
+
+        return str(pair)
+    return 0
 
 
 def sam_to_array(template):
-    # Todo if only one alignment for read1 and read2, no need to try pairing, just send sam to output (eleveate scores still?)
+
     data, overlaps = zip(*template["inputdata"])
 
-    # if len(data) == 2:
-    #     check_for_good_pairing(data)
-
     template["inputdata"] = [[i[1], i[2], i[3]] + i[4].strip().split("\t") for i in data]
+
+    # If only one alignment for read1 and read2, no need to try pairing, just send sam to output
+    if len(data) == 2:
+        pair_str = check_for_good_pairing(template["inputdata"][0], template["inputdata"][1], template["name"], template["max_d"])
+        if pair_str:
+            template["passed"] = 1
+            template["outstr"] = pair_str
+            return 1
 
     # [chrom, pos, query_start, query_end, aln_score, row_index, strand, read, num_mis-matches]
     cdef np.ndarray[np.float_t, ndim=2] arr = np.zeros((len(data), 9))  # , dtype=np.float
@@ -212,6 +241,8 @@ def sam_to_array(template):
 
     del template["inputfq"]
 
+    return 0
+
 
 def choose_supplementary(template):
 
@@ -220,7 +251,6 @@ def choose_supplementary(template):
 
     cdef np.ndarray[long, ndim=1] actual_rows = np.array([template['ri'][j] for j in template['rows']]).astype(int)
     cdef np.ndarray[double, ndim=2] d = template['data']  #[actual_rows, :]  # np.float_t is double
-    # d = np.round(d, 2)  # Need to be careful of float rounding errors
 
     cdef double read1_max = 0
     cdef double read2_max = 0
@@ -237,9 +267,6 @@ def choose_supplementary(template):
         elif d[i, 7] == 2 and d[i, 4] > read2_max:
             read2_max = d[i, 4]
             read2_alns += 1
-
-    # read1_max = np.round(read1_max, 2)
-    # read2_max = np.round(read2_max, 2)
 
     template["splitters"] = [read1_alns > 1, read2_alns > 1]
     template['score_mat']["splitter"] = [read1_alns - 1, read2_alns - 1]

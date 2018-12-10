@@ -208,7 +208,7 @@ def find_reads(ctx, **kwargs):
 
 
 @cli.command("align")
-@click.argument("sam", type=click.File('r'), required=True)
+@click.argument("sam", type=click.File('r', encoding="ascii"), required=True)
 @click.argument("output", required=False, type=click.Path())
 @click.option("--paired", help="Paired end reads or single", default=defaults["paired"],
               type=click.Choice(["True", "False"]), show_default=True)
@@ -335,10 +335,8 @@ def test_run_command(ctx, **kwargs):
 
 if __name__ == "__main__":
 
-
     df = defaults
     print df
-
 
     #@click.argument("sam", type=click.File('r'), required=True)
     #@click.argument("output", required=False, type=click.Path())

@@ -100,7 +100,7 @@ def optimal_path(
                  float inter_cost=2,
                  float U=9,
                  float match_score=1,
-                 float clipping_penalty=5):
+                 float clipping_penalty=0):
     """
     The scoring has become quite complicated.
      = Last alignment score - jump cost
@@ -137,10 +137,11 @@ def optimal_path(
 
     # Deal with first score
     for i in range(segments.shape[0]):
-        if segments[i, 2] > 0:
-            node_scores[i] = segments[i, 4] - (segments[i, 2] * ins_cost) - clipping_penalty
-        else:
-            node_scores[i] = segments[i, 4]
+        node_scores[i] = segments[i, 4] - (segments[i, 2] * ins_cost)
+        # if segments[i, 2] > 0:
+        #     node_scores[i] = segments[i, 4] - (segments[i, 2] * ins_cost) - clipping_penalty
+        # else:
+        #     node_scores[i] = segments[i, 4]
     #pred[0] = -1
     pred.fill(-1)
     nb_node_scores.fill(-1e6)  # Must set to large negative, otherwise a value of zero can imply a path to that node
@@ -244,11 +245,11 @@ def optimal_path(
     end_i = -1
     for i in range(segments.shape[0]):
 
-        right_clip = contig_length - segments[i, 3]
-        if right_clip > 0:
-            cst = (ins_cost * right_clip) + clipping_penalty
+        # right_clip = contig_length - segments[i, 3]
+        # if right_clip > 0:
+        #     cst = (ins_cost * right_clip) + clipping_penalty
 
-        node_to_end_cost = node_scores[i] - cst
+        node_to_end_cost = node_scores[i] - (ins_cost * right_clip) # cst
 
         if node_to_end_cost > path_score:
             path_score = node_to_end_cost
@@ -293,5 +294,8 @@ def optimal_path(
     cdef np.ndarray[np.int_t, ndim=1] a = np.empty(len(v), dtype=np.int)
     for i in range(v.size()):
         a[v.size() - 1 - i] = v[i]  # Virtual reversal of the indexes array
+
+    if secondary < 0:
+        secondary = 0
 
     return segments[a, 5], path_score, secondary, best_normal_orientation, normal_pairings

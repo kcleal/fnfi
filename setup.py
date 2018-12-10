@@ -28,14 +28,12 @@ extensions = [
             ["fnfi/c_samflags.pyx"],
             library_dirs=[numpy.get_include()],
             language="c",
-            # extra_compile_args=["-std=c++11", "-mmacosx-version-min=10.9"],
-            # extra_link_args=["-std=c++11"]
             ),
 ]
 print("Found packages", find_packages(where="."))
 setup(
     name="fnfi",
-    version='0.6.3',
+    version='0.7.0',
     packages=find_packages(where="."),
     ext_modules=cythonize(extensions),
     include_dirs=[numpy.get_include()],
@@ -46,7 +44,6 @@ setup(
         'pandas',
         'pysam',
         'pybedtools',
-        'natsort',
         'networkx',
         'scikit-learn',
         'ncls',

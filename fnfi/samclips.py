@@ -12,33 +12,28 @@ def echo(*arg):
     click.echo(arg, err=True)
 
 
-# def rev_comp(s):
-#     r = {"A": "T", "C": "G", "G": "C", "T": "A", "N": "N", "a": "T", "c": "G", "g": "C", "t": "A", "n": "N"}
-#     return "".join(r[i] for i in s)[::-1]
+# def add_softclips(s, fq, readid):
+#     fq_seq = fq[readid][0].upper()
+#     fq_qual = fq[readid][1]
+#     if s.flag & 16:
+#         fq_seq = rev_comp(fq_seq, len(fq_seq)
+#         fq_qual = fq_qual[::-1]
+#     s.seq = fq_seq
+#     s.qual = fq_qual
 
-#
-# def set_bit(v, index, x):
-#     """Set the index:th bit of v to 1 if x is truthy, else to 0, and return the new value."""
-#     mask = 1 << index  # Compute mask, an integer with just bit 'index' set.
-#     v &= ~mask  # Clear the bit indicated by the mask (if x is False)
-#     if x:
-#         v |= mask  # If x was True, set the bit indicated by the mask.
-#
-#     assert v == set_bit2(v, index, x)
-#     return v
-
-
-def add_softclips(s, fq, readid):
-    fq_seq = fq[readid][0].upper()
-    fq_qual = fq[readid][1]
-    if s.flag & 16:
-        fq_seq = rev_comp(fq_seq, len(fq_seq))
-        fq_qual = fq_qual[::-1]
-    s.seq = fq_seq
-    s.qual = fq_qual
+def set_tlen(p1, p2, alen, blen):
+    if p1 < p2:
+        tl = p2 + blen - p1
+        atl = str(tl)
+        btl = str(-1 * tl)
+    else:
+        tl = p2 - p1 - alen
+        atl = str(tl)
+        btl = str(-1 * tl)
+    return atl, btl
 
 
-def set_mate_flag(a, b, r1_len, r2_len, max_d, read1_rev, read2_rev, tempplate):
+def set_mate_flag(a, b, r1_len, r2_len, max_d, read1_rev, read2_rev):
 
     if not a or not b:  # No alignment, mate unmapped?
         return False, False
@@ -70,10 +65,6 @@ def set_mate_flag(a, b, r1_len, r2_len, max_d, read1_rev, read2_rev, tempplate):
             reverse_B = True
         elif (not bflag & 16) and read2_rev:
             reverse_B = True
-
-    # Turn off secondary flag as these are primary pair
-    # aflag = set_bit(aflag, 8, 0)
-    # bflag = set_bit(bflag, 8, 0)
 
     # Turn off proper pair flag, might be erroneously set
     aflag = set_bit(aflag, 1, 0)
@@ -128,14 +119,18 @@ def set_mate_flag(a, b, r1_len, r2_len, max_d, read1_rev, read2_rev, tempplate):
         if arname == brname:
             # Set TLEN
             p1, p2 = int(apos), int(bpos)
-            if p1 < p2:
-                tl = p2 + r2_len - p1
-                a[7] = str(tl)
-                b[7] = str(-1 * tl)
-            else:
-                tl = p2 - p1 - r1_len
-                a[7] = str(tl)
-                b[7] = str(-1 * tl)
+            atl, btl = set_tlen(p1, p2, r1_len, r2_len)
+            a[7] = atl
+            b[7] = btl
+            # p1, p2 = int(apos), int(bpos)
+            # if p1 < p2:
+            #     tl = p2 + r2_len - p1
+            #     a[7] = str(tl)
+            #     b[7] = str(-1 * tl)
+            # else:
+            #     tl = p2 - p1 - r1_len
+            #     a[7] = str(tl)
+            #     b[7] = str(-1 * tl)
 
             # Set proper-pair flag
             if (aflag & 16 and not bflag & 16) or (not aflag & 16 and bflag & 16):  # Not on same strand
@@ -174,11 +169,12 @@ def set_mate_flag(a, b, r1_len, r2_len, max_d, read1_rev, read2_rev, tempplate):
 
 
 def set_supp_flags(sup, pri, ori_primary_reversed, primary_will_be_reversed):
+
     # Set paired
     supflag = sup[0]
     priflag = pri[0]
 
-    # Set paird and supplementary flag
+    # Set paired and supplementary flag
     if not supflag & 1:
         supflag = set_bit(supflag, 0, 1)
     if not supflag & 2048:
@@ -187,19 +183,19 @@ def set_supp_flags(sup, pri, ori_primary_reversed, primary_will_be_reversed):
     # If primary is on reverse strand, set the mate reverse strand tag
     if priflag & 16 and not supflag & 32:
         supflag = set_bit(supflag, 5, 1)
+    # If primary is on forward srand, turn off mate rev strand
+    if not priflag & 16 and supflag & 32:
+        supflag = set_bit(supflag, 5, 0)
 
     # Turn off not-primary-alignment
     if supflag & 256:
         supflag = set_bit(supflag, 8, 0)
 
-    # Sometimes supplementary needs to be reverse complemented too
-    # Occurs when primary has been rev-comp and supp is forward strand or vice versa
-    # if primary_reversed and not supflag & 16:
-    #     rev_sup = True
-
     if not ori_primary_reversed and supflag & 16:
         rev_sup = True
     elif ori_primary_reversed and not supflag & 16 and not primary_will_be_reversed:
+        rev_sup = True
+    elif not priflag & 16 and primary_will_be_reversed and not supflag & 16:
         rev_sup = True
     else:
         rev_sup = False
@@ -208,6 +204,9 @@ def set_supp_flags(sup, pri, ori_primary_reversed, primary_will_be_reversed):
 
     sup[5] = pri[1]
     sup[6] = pri[2]
+
+    #sup[6] = pri[6]  # Rnext and Pnext
+    #sup[7] = pri[7]
 
     return rev_sup
 
@@ -312,7 +311,7 @@ def add_sequence_back(item, reverse_me, template):
             raise ValueError
 
     if len(item[8]) != cigar_length:
-        echo(len(item[8]), cigar_length, len(item[9]), start, end)
+       echo(len(item[8]), cigar_length, len(item[9]), start, end)
         # echo(template)
 
     assert len(item[8]) == cigar_length
@@ -365,6 +364,10 @@ def fixsam(template):
     sam = [template['inputdata'][i] for i in template['rows']]
     r1l, r2l = template["read1_length"], template["read2_length"]
     max_d = template['max_d']
+
+    # if template["name"] == "chr22-1878591":
+    #     click.echo(template, err=True)
+        # quit()
 
     # Todo make sure all read-pairs have a mapping, otherwise write an unmapped
 
@@ -424,14 +427,14 @@ def fixsam(template):
     if paired and template["paired_end"]:
 
         rev_A, rev_B = set_mate_flag(primary1, primary2, r1l, r2l, max_d,
-                                     template["read1_reverse"], template["read2_reverse"], template)
+                                     template["read1_reverse"], template["read2_reverse"])
 
         # Check if supplementary needs reverse complementing
         for i in range(len(out)):
             if out[i][1][0] & 64:  # Flag
-                revsup = set_supp_flags(out[i][1], primary1, template["read1_reverse"], rev_A)
+                revsup = set_supp_flags(out[i][1], primary2, template["read1_reverse"], rev_A)
             else:
-                revsup = set_supp_flags(out[i][1], primary2, template["read2_reverse"], rev_B)
+                revsup = set_supp_flags(out[i][1], primary1, template["read2_reverse"], rev_B)
 
             if revsup:
                 out[i][2] = True
@@ -446,7 +449,7 @@ def fixsam(template):
             if len(aln[8]) <= 1 or "H" in aln[4]:  # Sequence is set as "*", needs adding back in, or hard-clipped
                 add_sequence_back(aln, reverse_me, template)
             elif reverse_me:
-                aln[8] = rev_comp(aln[8], len(aln[8]))
+                aln[8] = rev_comp(str(aln[8]), len(aln[8]))
                 aln[9] = aln[9][::-1]
 
             # Turn off not primary here
@@ -483,39 +486,30 @@ if __name__ == "__main__":
 
     array = np.array
 
-    template = {'splitters': [False, False], 'paired_end': 1, 'locs': ['chr17-116696-1-1', 'chr17-116846--1-2'], 'bias': 1.15, 'fq_read2_seq': 0, 'isize': (210.0, 175.0), 'read2_q': 'FCGBFGDFFDAA6FFGGEG<FFGGGGGGGGD$7GG<FFC:G?GG;DAEEB->AFGG@CDFGEFGFGG@FBGEGFGFGGFFFEFGGGGGGGGFGCGF&.(BDFGDEGGGGGEEGFGFGGCEGF>FG', 'max_d': 910.0, 'read2_seq': 'ATTAGTCTTAGGGCATGGTGTGGATATTATTACATTAGTATTGGAAGCGATGGTGTGGACTAGATCAGTGATAGGGCATGGTGTGGATATTATTACCTTAGTATTGGAAGCGATGGTGTGGACTA', 'chrom_ids': {'chr17_GL383563v3_alt': 1, 'chr11': 2, 'chr17': 0}, 'read2_length': 125, 'passed': True, 'replace_hard': 0, 'read2_reverse': 1, 'inputdata': [['97', 'chr17', '116696', '0', '125M', '=', '116846', '275', 'ACAGTCCACGTAGTAGATATTATTATATTTATTAGTATTAGAGGCCATTGTGTCAATATATTAGTGTTAGGGCATGGTATGGGTGTCTAGATTAGTGTTAGGGAATGGTGTGGATATTGTATTGG', 'F#GGGGEFGBG:GGG=GEGAGDGD@EFGGDFGFF;FBBGGF4FAFGDG3.&FGCGG@DG::GGCGGGFGFGGGGD=EGGGFGF<GEG;G?C3EGFG<GEFG9GGD>-D?7=7DGGF5<@EAFFGC', 'NM:i:1', 'MD:Z:1G123', 'AS:i:123', 'XS:i:123', 'RG:Z:0'], ['353', 'chr17_GL383563v3_alt', '56696', '0', '125M', 'chr17', '116846', '0', '*', '*', 'NM:i:1', 'MD:Z:1G123', 'AS:i:123', 'RG:Z:0'], ['353', 'chr11', '179656', '0', '125M', 'chr17', '116846', '0', '*', '*', 'NM:i:3', 'MD:Z:1G80A3T38', 'AS:i:113', 'RG:Z:0'], ['145', 'chr17', '116846', '0', '125M', '=', '116696', '-275', 'ATTAGTCTTAGGGCATGGTGTGGATATTATTACATTAGTATTGGAAGCGATGGTGTGGACTAGATCAGTGATAGGGCATGGTGTGGATATTATTACCTTAGTATTGGAAGCGATGGTGTGGACTA', 'FCGBFGDFFDAA6FFGGEG<FFGGGGGGGGD$7GG<FFC:G?GG;DAEEB->AFGG@CDFGEFGFGG@FBGEGFGFGGFFFEFGGGGGGGGFGCGF&.(BDFGDEGGGGGEEGFGFGGCEGF>FG', 'NM:i:1', 'MD:Z:96A28', 'AS:i:120', 'XS:i:120', 'RG:Z:0'], ['401', 'chr17_GL383563v3_alt', '56846', '0', '125M', 'chr17', '116696', '0', '*', '*', 'NM:i:1', 'MD:Z:96A28', 'AS:i:120', 'RG:Z:0'], ['401', 'chr17', '117161', '0', '125M', '=', '116696', '-590', '*', '*', 'NM:i:3', 'MD:Z:2C3G89A28', 'AS:i:113', 'RG:Z:0'], ['401', 'chr17_GL383563v3_alt', '57161', '0', '125M', 'chr17', '116696', '0', '*', '*', 'NM:i:3', 'MD:Z:2C3G89A28', 'AS:i:113', 'RG:Z:0'], ['401', 'chr17', '117035', '0', '125M', '=', '116696', '-464', '*', '*', 'NM:i:5', 'MD:Z:2C3G89A9A15T2', 'AS:i:105', 'RG:Z:0'], ['401', 'chr17_GL383563v3_alt', '57035', '0', '125M', 'chr17', '116696', '0', '*', '*', 'NM:i:5', 'MD:Z:2C3G89A9A15T2', 'AS:i:105', 'RG:Z:0'], ['401', 'chr17_GL383563v3_alt', '57106', '0', '8H117M', 'chr17', '116696', '0', '*', '*', 'NM:i:4', 'MD:Z:35A15T10T25A28', 'AS:i:97', 'RG:Z:0'], ['401', 'chr17', '117106', '0', '8H117M', '=', '116696', '-527', '*', '*', 'NM:i:4', 'MD:Z:35A15T10T25A28', 'AS:i:97', 'RG:Z:0']], 'fq_read1_q': 0, 'fq_read2_q': 0, 'read1_reverse': 0, 'rows': array([0, 3]), 'read1_q': 'F#GGGGEFGBG:GGG=GEGAGDGD@EFGGDFGFF;FBBGGF4FAFGDG3.&FGCGG@DG::GGCGGGFGFGGGGD=EGGGFGF<GEG;G?C3EGFG<GEFG9GGD>-D?7=7DGGF5<@EAFFGC', 'read1_length': 125, 'data': array([[ 0.00000000e+00,  1.16696000e+05,  0.00000000e+00,
-         1.25000000e+02,  1.41449997e+02,  0.00000000e+00,
-         1.00000000e+00,  1.00000000e+00,  0.00000000e+00],
-       [ 1.00000000e+00,  5.66960000e+04,  0.00000000e+00,
-         1.25000000e+02,  1.23000000e+02,  1.00000000e+00,
-         1.00000000e+00,  1.00000000e+00,  0.00000000e+00],
-       [ 2.00000000e+00,  1.79656000e+05,  0.00000000e+00,
-         1.25000000e+02,  1.13000000e+02,  2.00000000e+00,
-         1.00000000e+00,  1.00000000e+00,  0.00000000e+00],
-       [ 0.00000000e+00,  1.16846000e+05,  1.25000000e+02,
-         2.50000000e+02,  1.37999997e+02,  3.00000000e+00,
-        -1.00000000e+00,  2.00000000e+00,  0.00000000e+00],
-       [ 0.00000000e+00,  1.17161000e+05,  1.25000000e+02,
-         2.50000000e+02,  1.29949997e+02,  5.00000000e+00,
-        -1.00000000e+00,  2.00000000e+00,  0.00000000e+00],
-       [ 0.00000000e+00,  1.17035000e+05,  1.25000000e+02,
-         2.50000000e+02,  1.20749997e+02,  7.00000000e+00,
-        -1.00000000e+00,  2.00000000e+00,  0.00000000e+00],
-       [ 1.00000000e+00,  5.68460000e+04,  1.25000000e+02,
-         2.50000000e+02,  1.20000000e+02,  4.00000000e+00,
-        -1.00000000e+00,  2.00000000e+00,  0.00000000e+00],
-       [ 1.00000000e+00,  5.71610000e+04,  1.25000000e+02,
-         2.50000000e+02,  1.13000000e+02,  6.00000000e+00,
-        -1.00000000e+00,  2.00000000e+00,  0.00000000e+00],
-       [ 1.00000000e+00,  5.70350000e+04,  1.25000000e+02,
-         2.50000000e+02,  1.05000000e+02,  8.00000000e+00,
-        -1.00000000e+00,  2.00000000e+00,  0.00000000e+00],
-       [ 0.00000000e+00,  1.17106000e+05,  1.33000000e+02,
-         2.50000000e+02,  1.11549998e+02,  1.00000000e+01,
-        -1.00000000e+00,  2.00000000e+00,  0.00000000e+00],
-       [ 1.00000000e+00,  5.71060000e+04,  1.33000000e+02,
-         2.50000000e+02,  9.70000000e+01,  9.00000000e+00,
-        -1.00000000e+00,  2.00000000e+00,  0.00000000e+00]]), 'name': 'simulated_genome_reads.2-chr17-3', 'fq_read1_seq': 0, 'match_score': 1.0, 'read1_seq': 'ACAGTCCACGTAGTAGATATTATTATATTTATTAGTATTAGAGGCCATTGTGTCAATATATTAGTGTTAGGGCATGGTATGGGTGTCTAGATTAGTGTTAGGGAATGGTGTGGATATTGTATTGG', 'last_seen_chrom': 'chr17', 'ri': {0.0: 0, 1.0: 1, 2.0: 2, 3.0: 3, 4.0: 6, 5.0: 4, 6.0: 7, 7.0: 5, 8.0: 8, 9.0: 10, 10.0: 9}, 'score_mat': {'splitter': [0, 0], 'dis_to_next_path': 11.086029052734375, 'chr17-116846--1-2': [True, 129.9499969482422], 'dis_to_normal': 279.4217224121094, 'path_score': 279.4217224121094, 'normal_pairings': 1, 'chr17-116696-1-1': [False, 123.0]}, 'pairing_params': (100.0, 17.0, 100.0, 1.0, 3.0, 2.0, 9.0)}
+    template = {'splitters': [False, False], 'paired_end': 1, 'locs': ['chr22-16746466-1-1', 'chr22-16746819--1-2', 'chr22-16706881--1-2'], 'bias': 1.0, 'fq_read2_seq': 0, 'isize': (210.0, 175.0), 'read2_q': '=>=><?;;<@<?==<?=>=>A=@?>=<>>>=>@??>@@=B>=A@A@B@@@@@?A??C>@?@?@@@AAC?B?CAEAAAABBCBABABB?CCBBACDA@ABB', 'max_d': 910.0, 'read2_seq': 'GTTCAAAAATAATTGTTAGATGGATTCATAGACTAAAGAATTAATAGATATAGATTGAAAACGGAATGCATATTATCCAGGTATGAACATGCATTTGTCA', 'chrom_ids': {'chr3': 1, 'chr22': 0, 'chr20': 2}, 'read2_length': 100, 'passed': True, 'replace_hard': 0, 'read2_reverse': 1, 'inputdata': [['99', 'chr22', '16746466', '42', '100M', '=', '16746819', '415', 'TGGAGAGAGGTTTCTAGTCGCATATTCAGTATGTTACTTTTCTTTAGATCTTGCTTATTCAATTTTAAATCAAAGGCATGAATGAAGATATAGACTGCAA', 'BBDAB@AA?DDE??A@CC@?>@@BB@@@DBAB@?A>>@B@C>??C@?<AA=?=@??BA?>>A=@=>??>=@<?<>;>?A?>=>@@<??>@<>>=<<@<=<', 'NM:i:1', 'MD:Z:66T33', 'AS:i:95', 'XS:i:78'], ['371', 'chr3', '75872374', '0', '37M1D63M', 'chr22', '16746819', '0', '*', '*', 'NM:i:4', 'MD:Z:16T16A3^T25G37', 'AS:i:78'], ['355', 'chr20', '26249450', '0', '100M', 'chr22', '16746819', '0', '*', '*', 'NM:i:5', 'MD:Z:19A16T3C25T16A16', 'AS:i:75'], ['147', 'chr22', '16746819', '12', '62M38S', '=', '16746466', '-415', 'GTTCAAAAATAATTGTTAGATGGATTCATAGACTAAAGAATTAATAGATATAGATTGAAAACGGAATGCATATTATCCAGGTATGAACATGCATTTGTCA', '=>=><?;;<@<?==<?=>=>A=@?>=<>>>=>@??>@@=B>=A@A@B@@@@@?A??C>@?@?@@@AAC?B?CAEAAAABBCBABABB?CCBBACDA@ABB', 'NM:i:1', 'MD:Z:6T55', 'AS:i:57', 'XS:i:52', 'SA:Z:chr22,16706881,-,62S38M,0,0;'], ['387', 'chr3', '75872062', '0', '38H62M', 'chr22', '16746466', '0', '*', '*', 'NM:i:2', 'MD:Z:32C22A6', 'AS:i:52'], ['403', 'chr20', '26249804', '0', '62M38H', 'chr22', '16746466', '0', '*', '*', 'NM:i:3', 'MD:Z:6T8C13G32', 'AS:i:47'], ['2195', 'chr22', '16706881', '0', '62H38M', '=', '16746466', '39549', 'GGAATGCATATTATCCAGGTATGAACATGCATTTGTCA', '@@@AAC?B?CAEAAAABBCBABABB?CCBBACDA@ABB', 'NM:i:0', 'MD:Z:38', 'AS:i:38', 'XS:i:38', 'SA:Z:chr22,16746819,-,62M38S,12,1;'], ['387', 'chr3', '75922893', '0', '38M62H', 'chr22', '16746466', '0', '*', '*', 'NM:i:0', 'MD:Z:38', 'AS:i:38']], 'fq_read1_q': 0, 'fq_read2_q': 0, 'read1_reverse': 0, 'rows': array([0, 3, 6]), 'read1_q': 'BBDAB@AA?DDE??A@CC@?>@@BB@@@DBAB@?A>>@B@C>??C@?<AA=?=@??BA?>>A=@=>??>=@<?<>;>?A?>=>@@<??>@<>>=<<@<=<', 'read1_length': 100, 'data': array([[ 0.0000000e+00,  1.6746466e+07,  0.0000000e+00,  1.0000000e+02,
+         9.5000000e+01,  0.0000000e+00,  1.0000000e+00,  1.0000000e+00,
+         0.0000000e+00],
+       [ 1.0000000e+00,  7.5872374e+07,  0.0000000e+00,  1.0000000e+02,
+         7.8000000e+01,  1.0000000e+00, -1.0000000e+00,  1.0000000e+00,
+         0.0000000e+00],
+       [ 2.0000000e+00,  2.6249450e+07,  0.0000000e+00,  1.0000000e+02,
+         7.5000000e+01,  2.0000000e+00,  1.0000000e+00,  1.0000000e+00,
+         0.0000000e+00],
+       [ 0.0000000e+00,  1.6746819e+07,  1.0000000e+02,  1.6200000e+02,
+         5.7000000e+01,  3.0000000e+00, -1.0000000e+00,  2.0000000e+00,
+         0.0000000e+00],
+       [ 1.0000000e+00,  7.5872062e+07,  1.0000000e+02,  1.6200000e+02,
+         5.2000000e+01,  4.0000000e+00,  1.0000000e+00,  2.0000000e+00,
+         0.0000000e+00],
+       [ 2.0000000e+00,  2.6249804e+07,  1.0000000e+02,  1.6200000e+02,
+         4.7000000e+01,  5.0000000e+00, -1.0000000e+00,  2.0000000e+00,
+         0.0000000e+00],
+       [ 0.0000000e+00,  1.6706881e+07,  1.6200000e+02,  2.0000000e+02,
+         3.8000000e+01,  6.0000000e+00, -1.0000000e+00,  2.0000000e+00,
+         0.0000000e+00],
+       [ 1.0000000e+00,  7.5922893e+07,  1.6200000e+02,  2.0000000e+02,
+         3.8000000e+01,  7.0000000e+00,  1.0000000e+00,  2.0000000e+00,
+         0.0000000e+00]]), 'name': 'chr22-1878591', 'fq_read1_seq': 0, 'match_score': 1.0, 'read1_seq': 'TGGAGAGAGGTTTCTAGTCGCATATTCAGTATGTTACTTTTCTTTAGATCTTGCTTATTCAATTTTAAATCAAAGGCATGAATGAAGATATAGACTGCAA', 'last_seen_chrom': 'chr3', 'ri': {0.0: 0, 1.0: 1, 2.0: 2, 3.0: 3, 4.0: 4, 5.0: 5, 6.0: 6, 7.0: 7}, 'score_mat': {'splitter': [0, 0], 'chr22-16746466-1-1': [True, 78.0], 'dis_to_next_path': 2.0, 'chr22-16706881--1-2': [False, 38.0], 'dis_to_normal': 149.46286010742188, 'path_score': 178.46286010742188, 'chr22-16746819--1-2': [True, 52.0], 'normal_pairings': 1}, 'pairing_params': (100.0, 17.0, 100.0, 1.0, 3.0, 2.0, 9.0)}
 
     sam = fixsam(template)
     print type(sam)

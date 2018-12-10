@@ -12,10 +12,18 @@ import c_io_funcs
 
 
 def process_template(read_template):
-    c_io_funcs.sam_to_array(read_template)
+    paired = c_io_funcs.sam_to_array(read_template)
+
+    if paired:
+        data_io.to_output(read_template)
+        return
 
     res = pairing.process(read_template)
-    # click.echo(read_template["name"], err=True)
+
+    # if read_template["name"] == "chr22-163734":
+    #     click.echo("hi", err=True)
+    #     click.echo(read_template, err=True)
+    #     click.echo("", err=True)
     # click.echo(read_template["data"].astype(int), err=True)
     # click.echo("", err=True)
     if res:
@@ -23,6 +31,7 @@ def process_template(read_template):
         c_io_funcs.add_scores(read_template, *res)
         c_io_funcs.choose_supplementary(read_template)
         c_io_funcs.score_alignments(read_template, read_template["ri"], read_template['rows'], read_template['data'])
+        data_io.to_output(read_template)
 
 
 def worker(queue, out_queue):
@@ -40,6 +49,8 @@ def worker(queue, out_queue):
                 read_template = data_io.make_template(*data_tuple)
                 process_template(read_template)
                 if read_template['passed']:
+                    # out_queue.put(read_template["outstr"])
+
                     outstring = data_io.to_output(read_template)
                     if outstring:
                         big_string += outstring
@@ -48,13 +59,14 @@ def worker(queue, out_queue):
 
             if len(big_string) > 0:
                 out_queue.put(big_string)
-            else:
-                click.echo("WARNING: no output from job.", err=True)
+            # else:
+            #     click.echo("WARNING: no output from job.", err=True)
         queue.task_done()
 
 
 def process_reads(args):
     t0 = time.time()
+
     click.echo("fnfi reading data from {}".format(args["sam"]), err=True)
     click.echo("Replace hard clips == {}".format(args["replace_hardclips"] == "True"), err=True)
     if not args["include"]:
@@ -123,11 +135,10 @@ def process_reads(args):
     # Use single process for debugging
     else:
         click.echo("Single process", err=True)
-        to_write = []  # Batch write
 
         itr = data_io.iterate_mappings(args)
         header_string = next(itr)
-        to_write.append(header_string)
+        outsam.write(header_string)
 
         for data_tuple in itr:
 
@@ -136,21 +147,9 @@ def process_reads(args):
             process_template(temp)
 
             if temp['passed']:
-                to_write.append(data_io.to_output(temp))
-
-            if len(to_write) > 10000:  # Alignments to write
-                for item in to_write:
-
-                    if item is not None:
-                        outsam.write(item)
-
-
-
-                to_write = []
-
-        for item in to_write:
-            if item:
-                outsam.write(item)
+                outstr = data_io.to_output(temp)
+                if outstr:
+                    outsam.write(outstr)
 
     if args["outsam"] != "-" or args["output"] is not None:
         outsam.close()
