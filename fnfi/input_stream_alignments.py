@@ -1,5 +1,6 @@
 import multiprocessing
 import sys
+import pkg_resources
 from threading import Thread
 import click
 import data_io
@@ -20,12 +21,6 @@ def process_template(read_template):
 
     res = pairing.process(read_template)
 
-    # if read_template["name"] == "chr22-163734":
-    #     click.echo("hi", err=True)
-    #     click.echo(read_template, err=True)
-    #     click.echo("", err=True)
-    # click.echo(read_template["data"].astype(int), err=True)
-    # click.echo("", err=True)
     if res:
         read_template["passed"] = True
         c_io_funcs.add_scores(read_template, *res)
@@ -50,7 +45,6 @@ def worker(queue, out_queue):
                 process_template(read_template)
                 if read_template['passed']:
                     # out_queue.put(read_template["outstr"])
-
                     outstring = data_io.to_output(read_template)
                     if outstring:
                         big_string += outstring
@@ -66,9 +60,10 @@ def worker(queue, out_queue):
 
 def process_reads(args):
     t0 = time.time()
+    version = pkg_resources.require("fnfi")[0].version
 
-    click.echo("fnfi reading data from {}".format(args["sam"]), err=True)
-    click.echo("Replace hard clips == {}".format(args["replace_hardclips"] == "True"), err=True)
+    click.echo("fnfi align {} reading data from {}".format(version, args["sam"]), err=True)
+
     if not args["include"]:
         args["bias"] = 1.0
     else:
@@ -91,7 +86,7 @@ def process_reads(args):
         click.echo("fnfi align runnning {} cpus".format(cpus), err=True)
 
         # Todo joinable queue is not efficient, other options?
-        the_queue = multiprocessing.JoinableQueue(maxsize=cpus+2)
+        the_queue = multiprocessing.JoinableQueue(maxsize=100)  #cpus+2)
         out_queue = multiprocessing.Queue()
 
         the_pool = multiprocessing.Pool(args["procs"] if args["procs"] != 0 else multiprocessing.cpu_count(),
@@ -114,7 +109,7 @@ def process_reads(args):
         writer.start()
 
         job = []
-        itr = data_io.iterate_mappings(args)
+        itr = data_io.iterate_mappings(args, version)
         header_string = next(itr)
         out_queue.put(header_string)
 
@@ -136,7 +131,7 @@ def process_reads(args):
     else:
         click.echo("Single process", err=True)
 
-        itr = data_io.iterate_mappings(args)
+        itr = data_io.iterate_mappings(args, version)
         header_string = next(itr)
         outsam.write(header_string)
 

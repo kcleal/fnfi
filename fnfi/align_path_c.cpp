@@ -4664,7 +4664,7 @@ static PyObject *__pyx_pf_4fnfi_12align_path_c_optimal_path(CYTHON_UNUSED PyObje
  * 
  *     if secondary < 0:             # <<<<<<<<<<<<<<
  *         secondary = 0
- * 
+ *     if path_score < 0:
  */
   __pyx_t_51 = ((__pyx_v_secondary < 0.0) != 0);
   if (__pyx_t_51) {
@@ -4673,8 +4673,8 @@ static PyObject *__pyx_pf_4fnfi_12align_path_c_optimal_path(CYTHON_UNUSED PyObje
  * 
  *     if secondary < 0:
  *         secondary = 0             # <<<<<<<<<<<<<<
- * 
- *     return segments[a, 5], path_score, secondary, best_normal_orientation, normal_pairings
+ *     if path_score < 0:
+ *         path_score = 0
  */
     __pyx_v_secondary = 0.0;
 
@@ -4683,17 +4683,73 @@ static PyObject *__pyx_pf_4fnfi_12align_path_c_optimal_path(CYTHON_UNUSED PyObje
  * 
  *     if secondary < 0:             # <<<<<<<<<<<<<<
  *         secondary = 0
+ *     if path_score < 0:
+ */
+  }
+
+  /* "fnfi/align_path_c.pyx":300
+ *     if secondary < 0:
+ *         secondary = 0
+ *     if path_score < 0:             # <<<<<<<<<<<<<<
+ *         path_score = 0
+ *     if best_normal_orientation < 0:
+ */
+  __pyx_t_51 = ((__pyx_v_path_score < 0.0) != 0);
+  if (__pyx_t_51) {
+
+    /* "fnfi/align_path_c.pyx":301
+ *         secondary = 0
+ *     if path_score < 0:
+ *         path_score = 0             # <<<<<<<<<<<<<<
+ *     if best_normal_orientation < 0:
+ *         best_normal_orientation = 0
+ */
+    __pyx_v_path_score = 0.0;
+
+    /* "fnfi/align_path_c.pyx":300
+ *     if secondary < 0:
+ *         secondary = 0
+ *     if path_score < 0:             # <<<<<<<<<<<<<<
+ *         path_score = 0
+ *     if best_normal_orientation < 0:
+ */
+  }
+
+  /* "fnfi/align_path_c.pyx":302
+ *     if path_score < 0:
+ *         path_score = 0
+ *     if best_normal_orientation < 0:             # <<<<<<<<<<<<<<
+ *         best_normal_orientation = 0
+ * 
+ */
+  __pyx_t_51 = ((__pyx_v_best_normal_orientation < 0.0) != 0);
+  if (__pyx_t_51) {
+
+    /* "fnfi/align_path_c.pyx":303
+ *         path_score = 0
+ *     if best_normal_orientation < 0:
+ *         best_normal_orientation = 0             # <<<<<<<<<<<<<<
+ * 
+ *     return segments[a, 5], path_score, secondary, best_normal_orientation, normal_pairings
+ */
+    __pyx_v_best_normal_orientation = 0.0;
+
+    /* "fnfi/align_path_c.pyx":302
+ *     if path_score < 0:
+ *         path_score = 0
+ *     if best_normal_orientation < 0:             # <<<<<<<<<<<<<<
+ *         best_normal_orientation = 0
  * 
  */
   }
 
-  /* "fnfi/align_path_c.pyx":301
- *         secondary = 0
+  /* "fnfi/align_path_c.pyx":305
+ *         best_normal_orientation = 0
  * 
  *     return segments[a, 5], path_score, secondary, best_normal_orientation, normal_pairings             # <<<<<<<<<<<<<<
  */
   __Pyx_XDECREF(__pyx_r);
-  __pyx_t_1 = PyTuple_New(2); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 301, __pyx_L1_error)
+  __pyx_t_1 = PyTuple_New(2); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 305, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __Pyx_INCREF(((PyObject *)__pyx_v_a));
   __Pyx_GIVEREF(((PyObject *)__pyx_v_a));
@@ -4701,18 +4757,18 @@ static PyObject *__pyx_pf_4fnfi_12align_path_c_optimal_path(CYTHON_UNUSED PyObje
   __Pyx_INCREF(__pyx_int_5);
   __Pyx_GIVEREF(__pyx_int_5);
   PyTuple_SET_ITEM(__pyx_t_1, 1, __pyx_int_5);
-  __pyx_t_2 = __Pyx_PyObject_GetItem(((PyObject *)__pyx_v_segments), __pyx_t_1); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 301, __pyx_L1_error)
+  __pyx_t_2 = __Pyx_PyObject_GetItem(((PyObject *)__pyx_v_segments), __pyx_t_1); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 305, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
   __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-  __pyx_t_1 = PyFloat_FromDouble(__pyx_v_path_score); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 301, __pyx_L1_error)
+  __pyx_t_1 = PyFloat_FromDouble(__pyx_v_path_score); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 305, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
-  __pyx_t_4 = PyFloat_FromDouble(__pyx_v_secondary); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 301, __pyx_L1_error)
+  __pyx_t_4 = PyFloat_FromDouble(__pyx_v_secondary); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 305, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
-  __pyx_t_3 = PyFloat_FromDouble(__pyx_v_best_normal_orientation); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 301, __pyx_L1_error)
+  __pyx_t_3 = PyFloat_FromDouble(__pyx_v_best_normal_orientation); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 305, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  __pyx_t_5 = __Pyx_PyInt_From_int(__pyx_v_normal_pairings); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 301, __pyx_L1_error)
+  __pyx_t_5 = __Pyx_PyInt_From_int(__pyx_v_normal_pairings); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 305, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
-  __pyx_t_69 = PyTuple_New(5); if (unlikely(!__pyx_t_69)) __PYX_ERR(0, 301, __pyx_L1_error)
+  __pyx_t_69 = PyTuple_New(5); if (unlikely(!__pyx_t_69)) __PYX_ERR(0, 305, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_69);
   __Pyx_GIVEREF(__pyx_t_2);
   PyTuple_SET_ITEM(__pyx_t_69, 0, __pyx_t_2);

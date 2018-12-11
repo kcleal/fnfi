@@ -36,7 +36,7 @@ defaults = {
             "bias": 1.15,
             "output": "-",
             "outsam": "-",
-            "replace_hardclips": "True",
+            "replace_hardclips": "False",
             "fq1": None,
             "fq2": None
             }
@@ -217,9 +217,9 @@ def find_reads(ctx, **kwargs):
 @click.option("--read-length",  help="Length of a read in base-pairs", default=defaults["read_length"], type=float, show_default=True)
 @click.option("--replace-hardclips",  help="Replace hard-clips with soft-clips when possible", default=defaults["replace_hardclips"], type=click.Choice(["True", "False"]), show_default=True)
 @click.option("--fq1",  help="Fastq reads 1, used to add soft-clips to all hard-clipped read 1 alignments",
-              default=defaults["fq1"], type=click.Path())
+              default=defaults["fq1"], type=click.Path(), show_default=True)
 @click.option("--fq2",  help="Fastq reads 2, used to add soft-clips to all hard-clipped read 2 alignments",
-              default=defaults["fq2"], type=click.Path())
+              default=defaults["fq2"], type=click.Path(), show_default=True)
 @click.option("--max_insertion", help="Maximum insertion within read", default=defaults["max_insertion"], type=float, show_default=True)
 @click.option("--min-aln", help="Minimum alignment length", default=defaults["min_aln"], type=float, show_default=True)
 @click.option("--max-overlap", help="Maximum overlap between successive alignments", default=defaults["max_overlap"], type=float, show_default=True)
@@ -232,12 +232,12 @@ def find_reads(ctx, **kwargs):
 @click.option('--include', help=".bed file, elevate alignment scores in these regions. Determined by '--bias'",
               default=None, type=click.Path(exists=True))
 @click.option("--bias", help="""Multiply match score by bias if alignment falls within regions .bed file.
-Unused if .bed not provided.""", default=defaults["bias"], type=float)
+Unused if .bed not provided.""", default=defaults["bias"], type=float, show_default=True)
 @click.pass_context
 def fnfi_aligner(ctx, **kwargs):
     """Choose an optimal set of alignments from from a collection of candidate alignments.
-    If reads are paired, alignments must be sorted by read-name while the bit flag
-    designates read 1 vs read 2."""
+    If reads are paired, alignments must be sorted by read-name with the bit flag
+    designating read_1 vs read_2."""
     ctx = apply_ctx(ctx, kwargs)
     input_stream_alignments.process_reads(ctx.obj)
 

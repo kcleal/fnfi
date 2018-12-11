@@ -200,16 +200,15 @@ def fq_getter(reader, name, args, fbuffer):
     #     return None, None
 
 
-def iterate_mappings(args):
-
+def iterate_mappings(args, version):
+    arg_str = ", ".join(["{}={}".format(i, j) for i, j in args.items() if j is not None and "sam" not in i])
     inputstream = sam_itr(args)
 
     total = 0
     name = ""
     rows = []
     header_string = next(inputstream)
-    #header_string += "@RG\tID:0\tSM:0\tPU:lane1\tPL:ILLUMINA\tLB:0\n"  # Todo deal with read group information
-    # Todo add somthing to RG header, indicating fnfi alignment
+    header_string += "@PG\tID:fnfi\tPN:fnfi align\tVN:{}\tCL:{}\n".format(version, arg_str)
 
     yield header_string
 

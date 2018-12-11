@@ -1,7 +1,7 @@
 #!python
 #cython: language_level=2, boundscheck=False, wraparound=False
 #distutils: language=c++
-#defining NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
+
 """
 http://stackoverflow.com/questions/7403966/most-efficient-way-to-build-a-1-d-array-list-vector-of-unknown-length-using-cython
 """
@@ -297,5 +297,9 @@ def optimal_path(
 
     if secondary < 0:
         secondary = 0
+    if path_score < 0:
+        path_score = 0
+    if best_normal_orientation < 0:
+        best_normal_orientation = 0
 
     return segments[a, 5], path_score, secondary, best_normal_orientation, normal_pairings
