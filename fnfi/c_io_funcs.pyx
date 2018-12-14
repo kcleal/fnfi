@@ -214,11 +214,12 @@ def sam_to_array(template):
 
     # Save any input fastq information
     fq1, fq2 = template["inputfq"]
-    if fq1 == 1:
+
+    if fq1:
         template["fq_read1_seq"] = fq1[1]
         template["fq_read1_q"] = fq1[2]
         template["read1_length"] = len(fq1[1])
-    if fq2 == 1:
+    if fq2:
         template["fq_read2_seq"] = fq2[1]
         template["fq_read2_q"] = fq2[2]
         template["read2_length"] = len(fq2[1])

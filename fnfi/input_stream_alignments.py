@@ -139,6 +139,7 @@ def process_reads(args):
 
             count += 1
             temp = data_io.make_template(*data_tuple)
+
             process_template(temp)
 
             if temp['passed']:

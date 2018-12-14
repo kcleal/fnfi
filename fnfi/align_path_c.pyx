@@ -5,7 +5,7 @@
 """
 http://stackoverflow.com/questions/7403966/most-efficient-way-to-build-a-1-d-array-list-vector-of-unknown-length-using-cython
 """
-
+import click
 import array
 from cpython cimport array
 import numpy as np
@@ -127,6 +127,7 @@ def optimal_path(
     # Next best node score, for finding the secondary path
     cdef np.ndarray[np.float_t, ndim=1] nb_node_scores = np.zeros(segments.shape[0], dtype=np.float)
 
+    # Todo use an STL set instead of python set
     normal_jumps = set([])  # Keep track of which alignments form 'normal' pairs between read-pairs. Alas native python
 
     cdef int i, j, p, FR, normal_end_index
@@ -179,8 +180,7 @@ def optimal_path(
             r2 = segments[j, 7]
 
             # Allow alignments with minimum sequence and max overlap
-            if start1 > end2 - max_homology and end1 > end2 + min_aln and \
-                                    start1 - start2 > min_aln:
+            if start1 > end2 - max_homology and end1 > end2 + min_aln and start1 - start2 > min_aln:
 
                 if start1 > end2 and start1 - end2 > max_insertion:
                     continue
@@ -214,7 +214,7 @@ def optimal_path(
 
                 current_score = node_scores[j] + S
 
-                if current_score >= best_score:
+                if current_score > best_score:
                     next_best_score = best_score
                     best_score = current_score
 
