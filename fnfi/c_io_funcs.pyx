@@ -24,6 +24,8 @@ cdef char *basemap = [ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0
                        '\0',  't', '\0',  'g', '\0', '\0', '\0',  'c', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
                        '\0', '\0', '\0', '\0',  'a',  'a' ]
 
+np.random.seed(0)
+
 
 def reverse_complement(str seq, int seq_len):
     """https://bioinformatics.stackexchange.com/questions/3583/\
@@ -236,7 +238,7 @@ def sam_to_array(template):
                 click.echo((template["read1_length"], template["read2_length"]), err=True)
                 click.echo(arr[j, 3], err=True)
                 raise ValueError
-
+    #np.random.shuffle(arr)  # Randomize order of chromosomes
     template['data'] = np.array(sorted(arr, key=lambda x: (x[2], -x[4]))).astype(float)
     template['chrom_ids'] = chrom_ids
 
