@@ -5,12 +5,12 @@
 """
 http://stackoverflow.com/questions/7403966/most-efficient-way-to-build-a-1-d-array-list-vector-of-unknown-length-using-cython
 """
-import click
+
 import array
 from cpython cimport array
 import numpy as np
 cimport numpy as np
-from libc.math cimport exp, log, sqrt
+from libc.math cimport exp, log, sqrt, fabs
 # Import vector templates from the STL
 from libcpp.vector cimport vector
 
@@ -20,10 +20,10 @@ DTYPE = np.float
 ctypedef np.float_t DTYPE_t
 
 
-cdef erfcc(float x):
+cdef float erfcc(float x) nogil:
     """Complementary error function."""
     cdef float z, t, r, p1, p2, p3, p4, p5, p6, p7, p8, p9
-    z = abs(x)
+    z = fabs(x)
     t = (1. / (1. + 0.5*z))
     p1 = -.82215223+t*.17087277
     p2 = 1.48851587+t*p1
@@ -41,7 +41,7 @@ cdef erfcc(float x):
         return 2. - r
 
 
-cdef normcdf(float x, float mu, float sigma):
+cdef float normcdf(float x, float mu, float sigma) nogil:
     cdef float t, y
     t = x-mu
     y = 0.5*erfcc(-t/(sigma*sqrt(2.0)))
@@ -50,41 +50,33 @@ cdef normcdf(float x, float mu, float sigma):
     return y
 
 
-cdef bwa_pair_score(float pos1, float pos2, float strand1, float strand2, float mu, float sigma, float match_score,
-                   float u=9.):
+cdef int is_proper_pair(float d, float pos1, float pos2, float strand1, float strand2, float mu, float sigma) nogil:
+
+    if d <= (mu + 4*sigma):
+        if pos1 < pos2 and strand1 == 1. and strand2 == -1.:
+            return 1
+        if pos2 < pos1 and strand2 == 1. and strand1 == -1.:
+            return 1
+    return 0
+
+
+cdef float bwa_pair_score(float d, float mu, float sigma, float match_score, float u) nogil:
     """
     Calculate the bwa pairing cost
-    :param pos1: Position 1
-    :param pos2: Position 2
-    :param strand1: +1 or -1
-    :param strand2: as above
+    :param distance: seperation distance
     :param mu: insert size mean
     :param sigma: insert size std
     :param match_score: score gained from a matched base
     :param u: constant parameter, worst cost possible
     :return: The bwa pairing cost (float), whether the read is FR (int)
     """
-    cdef float d, prob, c
-    cdef int proper_pair = 0
-
-    # Check if read pair is FR type
-    if not (pos1 < pos2 and (strand1 == 1. and strand2 == -1.)) \
-            and not (pos2 < pos1 and (strand2 == 1. and strand1 == -1.)):
-        return u, proper_pair
-
-    # prob is probability of observing an insert size larger than d assuming a normal distribution
-    d = abs(pos1 - pos2)  # Todo what if insert size is negative, when reads overlap into one another
-    if d > (mu + 4*sigma):
-        prob = 1e-9
+    cdef float prob, c
+    prob = (1 - normcdf(d, mu, sigma))
+    c = -match_score * (log(prob)/log(4))
+    if c < u:
+        return c
     else:
-        prob = (1 - normcdf(d, mu, sigma)) + 1e-9  # Add 1e-9 to prevent 0 and math domain error
-
-    # Log4 is calculated as log(x)/log(base)
-    c = min([-match_score * (log(prob)/log(4)), u])
-    if c < 8:  # Todo, is this reasonable?
-        proper_pair = 1
-
-    return c, proper_pair
+        return u
 
 
 def optimal_path(
@@ -130,11 +122,11 @@ def optimal_path(
     # Todo use an STL set instead of python set
     normal_jumps = set([])  # Keep track of which alignments form 'normal' pairs between read-pairs. Alas native python
 
-    cdef int i, j, p, FR, normal_end_index
+    cdef int i, j, p, normal_end_index, proper_pair # FR,
     cdef float chr1, pos1, start1, end1, score1, row_index1, strand1, r1,\
                chr2, pos2, start2, end2, score2, row_index2, strand2, r2, \
                micro_h, ins, best_score, next_best_score, best_normal_orientation, current_score, total_cost,\
-               S, sc, max_s, path_score, jump_cost
+               S, sc, max_s, path_score, jump_cost, distance
 
     # Deal with first score
     for i in range(segments.shape[0]):
@@ -191,20 +183,24 @@ def optimal_path(
                 if r1 == r2:
                     micro_h = end2 - start1
                     if micro_h < 0:
-                        ins = abs(micro_h)
+                        ins = fabs(micro_h)
                         micro_h = 0
 
                 # Define jump cost
-                FR = 0
-
+                proper_pair = 0
                 if chr1 == chr2:
                     if r1 == r2:  # If the jump occurs on the same read, means there is an SV
                         jump_cost = U
 
                     else:
-                        jump_cost, FR = bwa_pair_score(pos1, pos2, strand1, strand2, mu, sigma, match_score)
-                        if FR:
-                            normal_jumps.add((i, j))
+                        distance = fabs(pos1 - pos2)
+                        proper_pair = is_proper_pair(distance, pos1, pos2, strand1, strand2, mu, sigma)
+                        if proper_pair:
+                            jump_cost = bwa_pair_score(distance, mu, sigma, match_score, U)
+                            normal_jumps.add((i, j))  # Keep track of normal pairings on the path
+                        else:
+                            jump_cost = U
+
                 else:
                     jump_cost = inter_cost + U
 
@@ -214,6 +210,7 @@ def optimal_path(
 
                 current_score = node_scores[j] + S
 
+                # Update best score and next best score
                 if current_score > best_score:
                     next_best_score = best_score
                     best_score = current_score
@@ -223,9 +220,7 @@ def optimal_path(
                 elif current_score > next_best_score:
                     next_best_score = current_score
 
-                if FR and abs(pos1 - pos2) < (mu + 4*sigma):  # Intra, normal pair
-
-                    # normal_score = score1 + score2 + jump_cost
+                if proper_pair:
                     if current_score > best_normal_orientation:
                         best_normal_orientation = current_score
                         normal_end_index = i  # index i is towards the right-hand side of the array

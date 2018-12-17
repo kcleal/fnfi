@@ -218,7 +218,7 @@ def iterate_mappings(args, version):
     fq_buffer = defaultdict(list)
     fq_iter = fq_reader(args)
 
-    max_d = args["insert_median"] + 5*args["insert_stdev"]  # Separation distance threshold to call a pair discordant
+    max_d = args["insert_median"] + 4*args["insert_stdev"]  # Separation distance threshold to call a pair discordant
     last_seen_chrom = ""
     for m, last_seen_chrom, ol in inputstream:  # Alignment
 
