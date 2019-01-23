@@ -33,7 +33,7 @@ extensions = [
 print("Found packages", find_packages(where="."))
 setup(
     name="fnfi",
-    version='0.7.1',
+    version='0.7.2',
     packages=find_packages(where="."),
     ext_modules=cythonize(extensions),
     include_dirs=[numpy.get_include()],

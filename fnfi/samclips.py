@@ -439,7 +439,10 @@ def fixsam(template):
             if revsup:
                 out[i][2] = True
 
-    out = [('pri', primary1, rev_A), ('pri', primary2, rev_B)] + out
+    if template["paired_end"]:
+        out = [('pri', primary1, rev_A), ('pri', primary2, rev_B)] + out
+    else:
+        out = [('pri', primary1, rev_A)] + out
 
     # Add read seq info back in if necessary, before reverse complementing. Check for hard clips and clip as necessary
     for a_type, aln, reverse_me in out:
