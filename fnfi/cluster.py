@@ -10,7 +10,8 @@ import click
 import networkx as nx
 import numpy as np
 import pysam
-from pybedtools import BedTool
+import sys
+import cPickle
 
 import caller
 import data_io
@@ -19,17 +20,20 @@ try:
     from StringIO import StringIO
 except ImportError:
     from io import StringIO
+try:
+    xrange
+except NameError:
+    xrange = range
 
 
 class Scoper:
     """Keeps track of which reads are in scope. Maximum distance depends on the template insert_median"""
     def __init__(self, max_dist, clip_length=20):
         self.max_dist = max_dist
-        self.scope = deque([])
+        self.scope = []
         self.clip_length = clip_length
 
     def update(self, current_read):
-
         if len(self.scope) == 0:
             self.scope.append(current_read)
             return
@@ -41,18 +45,18 @@ class Scoper:
         current_pos = current_read.pos
 
         # Go through reads and check if they are in scope
-        #out_of_scope = []
-        while True:
-            if len(self.scope) > 0:
-                p = self.scope[0].pos
-                if current_pos - p < self.max_dist:
-                    break
-                out = self.scope.popleft()
-                #out_of_scope.append((out.qname, out.flag, out.pos))
-                continue
-            break
+        trim_scope_idx = 0
+        for scope_index in xrange(len(self.scope)):
+            if abs(self.scope[scope_index].pos - current_pos) < self.max_dist:
+                trim_scope_idx = scope_index
+                break
+
+        if trim_scope_idx > 0:
+            # assert (abs(self.scope[trim_scope_idx].pos - current_pos) < self.max_dist) != \
+            # (abs(self.scope[trim_scope_idx - 1].pos - current_pos) < self.max_dist)
+            self.scope = self.scope[trim_scope_idx:]
+
         self.scope.append(current_read)
-        #return out_of_scope
 
     @staticmethod
     def overlap(start1, end1, start2, end2):
@@ -502,15 +506,14 @@ def get_reads(infile, sub_graph, max_dist, rl, read_buffer):
     return rd
 
 
-def construct_graph(args, infile, max_dist, buf_size=1e6):  # todo add option for read buffer length
-    click.echo("Constructing graph", err=True)
-
+def construct_graph(args, infile, max_dist, buf_size=1000):  # todo add option for read buffer length
+    click.echo("Finding overlapping reads", err=True)
     regions = data_io.overlap_regions(args["include"])
 
     nodes = []
     edges = []
 
-    all_flags = defaultdict(lambda: defaultdict(list))  # Linking clusters together rname: (flag, pos): (chrom, pos)
+    all_flags = defaultdict(set)  # Linking clusters together rname: set([(flag, pos)..])
 
     # Make a buffer of reads to help prevent file lookups later
     read_buffer = dict()  # keys are (rname, flag, pos)
@@ -518,17 +521,27 @@ def construct_graph(args, infile, max_dist, buf_size=1e6):  # todo add option fo
 
     scope = Scoper(max_dist=max_dist)
 
-    # template = pysam.AlignmentFile(args["sv_bam"])
-    # tt = pysam.AlignmentFile("{}.test.bam".format(args["sv_bam"][:-4]), "wb", template=template)
     count = 0
     buf_del_index = 0
-    # unwritten = {}
+
+    grey_added = 0
+    black_edges = 0
+    chroms_seen = set([])
     for r in infile:
 
-        # written = False
         if count % 50000 == 0:
+            cc = infile.get_reference_name(r.rname)
+            if cc not in chroms_seen:
+                chroms_seen.add(cc)
+            # afl = [[kk] + list(vv) for kk, vv in all_flags.items()]
+            # ll = sum([len(l1) for l1 in afl])
+            # echo("Nodes {}, MB {}".format(len(nodes), sys.getsizeof(cPickle.dumps(nodes)) / 1e6),
+            #      "Edges {}, MB {}".format(len(edges), sys.getsizeof(cPickle.dumps(edges)) / 1e6),
+            #      "Flags {}, MB {} n keys and items {}".format(len(all_flags), sys.getsizeof(cPickle.dumps(afl)) / 1e6, ll),
+            #      "scope {}".format(sys.getsizeof(cPickle.dumps([str(item) for item in scope.scope])) / 1e6),
+            #      )
             if count != 0:
-                click.echo("SV alignmnets processed {}".format(count), err=True)
+                click.echo("Working on {}, alignnmets {}, b-edges {}, g-edges {}".format(cc, count, black_edges, grey_added), err=True)
 
         # Limit to regions
         if regions:
@@ -537,6 +550,9 @@ def construct_graph(args, infile, max_dist, buf_size=1e6):  # todo add option fo
                 rnext = infile.get_reference_name(r.rnext)
                 if not data_io.intersecter(regions, rnext, r.pnext, r.pnext + 1):
                     continue
+
+        if len(r.cigar) == 0:
+            continue
 
         n1 = (r.qname, r.flag, r.pos)
 
@@ -554,16 +570,9 @@ def construct_graph(args, infile, max_dist, buf_size=1e6):  # todo add option fo
             buf_del_index += 1
 
         nodes.append((n1, {"p": (r.rname, r.pos)}))
-        all_flags[r.qname][(r.flag, r.pos)].append((r.rname, r.pos, r.flag))
+        all_flags[r.qname].add((r.flag, r.pos))
 
-        out_of_scope = scope.update(r)  # Add alignment to scope
-
-        # if out_of_scope is not None and len(out_of_scope) > 0:
-        #     for kk in out_of_scope:
-        #         if kk in unwritten:
-        #             del unwritten[kk]
-
-        grey_added = 0
+        scope.update(r)  # Add alignment to scope
 
         for t, ol, sup_edge in scope.iterate():  # Other read, overlap current read, supplementary edge
 
@@ -571,7 +580,7 @@ def construct_graph(args, infile, max_dist, buf_size=1e6):  # todo add option fo
                 break
 
             n2 = (t.qname, t.flag, t.pos)
-            all_flags[t.qname][(t.flag, t.pos)].append((t.rname, t.pos))
+            all_flags[t.qname].add((t.flag, t.pos))
 
             # Four types of edges; black means definite match with overlapping soft-clips. Grey means similar
             # rearrangement with start and end co-ords on reference genome. Yellow means supplementary matches a primary
@@ -581,14 +590,9 @@ def construct_graph(args, infile, max_dist, buf_size=1e6):  # todo add option fo
                 identity, prob_same = align_match(r, t)
 
                 if prob_same > 0.01:  # Add a black edge
-                    e = (n1, n2, {"c": "b"})  # "p": [(r.rname, r.pos), (t.rname, t.pos)],
-                    # if not written:
-                    #     tt.write(r)
-                    #     written = True
-                    #     if (t.qname, t.flag, t.pos) in unwritten:
-                    #         tt.write(unwritten[(t.qname, t.flag, t.pos)])
-                    #         del unwritten[(t.qname, t.flag, t.pos)]
+                    e = (n1, n2, {"c": "b"})
                     edges.append(e)
+                    black_edges += 1
                     continue
 
             # elif not ol and not sup_edge:
@@ -600,13 +604,7 @@ def construct_graph(args, infile, max_dist, buf_size=1e6):  # todo add option fo
                 # Add a grey edge
                 e = (n1, n2, {"c": "g"})
                 grey_added += 1
-                # if not written:
-                #     tt.write(r)
-                #     written = True
-                #     if (t.qname, t.flag, t.pos) in unwritten:
-                #         tt.write(unwritten[(t.qname, t.flag, t.pos)])
-                #         del unwritten[(t.qname, t.flag, t.pos)]
-                if grey_added > 60:
+                if grey_added > 6:
                     break  # Stop the graph getting unnecessarily dense
                 edges.append(e)
                 continue
@@ -617,26 +615,18 @@ def construct_graph(args, infile, max_dist, buf_size=1e6):  # todo add option fo
                 edges.append(e)
                 continue
 
-        # if not written:
-        #     unwritten[(r.qname, r.flag, r.pos)] = r
-
-    # template.close()
-    # tt.close()
-    # from subprocess import call
-    # call("samtools sort -o {v}.test.srt.bam {v}.test.bam".format(v=args["sv_bam"][:-4]), shell=True)
-    # call("samtools index {}.test.srt.bam".format(args["sv_bam"][:-4]), shell=True)
-
     # Add read-pair information to the graph, link regions together
+    echo("Constructing graph")
     G = nx.Graph()
     G.add_nodes_from(nodes)
     G.add_edges_from(edges)
     new_edges = []
-
+    echo("Adding read-pair information")
     for g in nx.connected_component_subgraphs(G, copy=True):
 
         # Add white edges between read-pairs which are NOT in the subgraph
-        nodes_to_check = [(n, all_flags[n].keys()) for n, f, p in g.nodes()]
-
+        # all_flags: rname: (flag, pos)
+        nodes_to_check = [(n, all_flags[n]) for n, f, p in g.nodes()]
         for n, flags in nodes_to_check:  # 2 reads, or 3 if supplementary read
 
             for f1, f2 in itertools.combinations_with_replacement(flags, 2):  # Check all edges within template
@@ -649,7 +639,7 @@ def construct_graph(args, infile, max_dist, buf_size=1e6):  # todo add option fo
 
     # Regroup based on white edges (link together read-pairs)
     G.add_edges_from(new_edges)
-    click.echo("Read {} alignments into overlap graph".format(count - 1), err=True)
+    click.echo("{} alignments processed into overlap graph".format(count - 1), err=True)
     return G, read_buffer
 
 
@@ -714,7 +704,12 @@ def cluster_reads(args):
 
     data_io.mk_dest(args["dest"])
 
-    infile = pysam.AlignmentFile(args["sv_bam"], "rb")
+    kind = args["sv_aligns"].split(".")[-1]
+    opts = {"bam": "rb", "cram": "rc", "sam": "rs"}
+
+    click.echo("Input file is {}, (.{} format)".format(args["sv_aligns"], kind), err=True)
+    infile = pysam.AlignmentFile(args["sv_aligns"], opts[kind])
+
     max_dist = int(args["insert_median"] + (5 * args["insert_stdev"]))  # > distance reads drop out of clustering scope
     click.echo("Maximum clustering distance is {}".format(max_dist), err=True)
 

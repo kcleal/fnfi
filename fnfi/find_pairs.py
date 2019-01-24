@@ -18,7 +18,7 @@ import data_io
 def iter_bam(bam, search):
 
     if not search:
-        click.echo("Searching whole genome", err=True)
+        click.echo("Searching input file", err=True)
         for aln in bam.fetch(until_eof=True):  # Also get unmapped reads
             yield aln
     else:
@@ -31,9 +31,12 @@ def iter_bam(bam, search):
 
 
 def get_reads(args):
+    kind = args["bam"].split(".")[-1]
+    opts = {"bam": "rb", "cram": "rc", "sam": "rs"}
+    click.echo("Input file is {}, (.{} format)".format(args["bam"], kind), err=True)
 
-    click.echo("Input bam is {}".format(args["bam"]), err=True)
-    bam = pysam.AlignmentFile(args["bam"], "rb")
+    bam = pysam.AlignmentFile(args["bam"], opts[kind])
+
     bam_i = iter_bam(bam, args["search"])
 
     if args["exclude"]:
@@ -52,6 +55,7 @@ def get_reads(args):
         call("samtools view -H -o {}.dict {}".format(out_name, args["bam"]), shell=True)
 
     read_names = set([])
+
     insert_size = []
     read_length = []
     for r in bam_i:
@@ -102,9 +106,19 @@ def get_reads(args):
 
 def convert_to_fastq(args, outname):
 
-    pysam.sort(*("-n -@{} -o {} {}".format(args["procs"], outname + ".srt.bam", outname + ".bam").split(" ")))
-    BedTool(outname + ".srt.bam").bam_to_fastq(fq=outname + "1.fq", fq2=outname + "2.fq")
+    # pysam.sort(*("-n -@{} -o {} {}".format(args["procs"], outname + ".srt.bam", outname + ".bam").split(" ")))
 
+    #BedTool(outname + ".srt.bam").bam_to_fastq(fq=outname + "1.fq", fq2=outname + "2.fq")
+    call("samtools sort -n -@{t} -o {o} {i}".format(t=args["procs"], o=outname + ".srt.bam",
+                                                    i=outname + ".bam"), shell=True)
+
+    call("samtools fastq -s /dev/null -1 {fq1} -2 {fq2} {bam}".format(fq1=outname + "1.fq",
+                                                                      fq2=outname + "2.fq",
+                                                                      bam=outname + ".srt.bam"), shell=True)
+
+    # call("bedtools bamtofastq -i {bam} -fq {fq} fq2 {fq2} > /dev/null".format(fq=outname + "1.fq",
+    #                                                                           fq2=outname + "2.fq",
+    #                                                                           bam=outname + ".srt.bam"), shell=True)
     os.remove(outname + ".srt.bam")
     os.remove(outname + ".bam")
 

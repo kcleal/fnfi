@@ -73,10 +73,10 @@ def pre_process_breakpoints(break_points_dict):
     if len(chroms) == 2:
         ci = list(chroms.items())
         total = float(sum(chroms.values()))
-        if ci[0][1] / total < 0.05:
-            del chroms[ci[0][1]]  # Keep item 1
+        if ci[0][1] / total < 0.05:  # Todo add parameter to list
+            del chroms[ci[0][0]]  # Keep item 1
         elif ci[1][1] / total < 0.05:
-            del chroms[ci[1][1]]  # Keep item 0
+            del chroms[ci[1][0]]  # Keep item 0
 
     return {k: v for k, v in break_points_dict.items() if v[2] in chroms}
 
@@ -442,8 +442,8 @@ def call_from_block_model(bm_graph, parent_graph, reads, bam, clip_length, inser
             #     if "simulated_reads.0.10-id270_A_chr21:46697027_B_chr17:6458938-35841" in reads:
             #         click.echo("hi", err=True)
             #         quit()
-
-        if len(bm.edges) > 1:
+        # echo(bm.edges)
+        if len(bm.edges()) > 1:
             # Break apart connected
             for event in multi(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev):
                 yield event
@@ -452,7 +452,7 @@ def call_from_block_model(bm_graph, parent_graph, reads, bam, clip_length, inser
             # Single isolated node
             yield single(bm, reads, bam, insert_size, insert_stdev)
 
-        if len(bm.edges) == 1:
+        if len(bm.edges()) == 1:
             # Easy case
             yield one_edge(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev)
 

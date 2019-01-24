@@ -25,17 +25,16 @@ defaults = {
             "insert_median": 210.,
             "insert_stdev": 175.,
             "read_length": 125.,
-            "max_insertion": 100.,
+            "max_insertion": 150.,
             "min_aln": 17.,
-            "max_overlap": 100.,
-            "ins_cost": 1.,
-            "ol_cost": 3.,
+            "max_overlap": 150.,
+            "ins_cost": 0.05,
+            "ol_cost": 1.05,
             "inter_cost": 2.,
             "u": 9.,
             "match_score": 1.,
             "bias": 1.15,
             "output": "-",
-            "outsam": "-",
             "replace_hardclips": "False",
             "fq1": None,
             "fq2": None
@@ -89,8 +88,8 @@ def pipeline(kwargs):
     if not single:
         kwargs["procs"] = remaining_procs + used_procs
 
-    kwargs["sv_bam"] = kwargs["out_pfix"] + ".srt.bam"
-    kwargs["raw_bam"] = kwargs["bam"]
+    kwargs["sv_aligns"] = kwargs["out_pfix"] + ".srt.bam"
+    kwargs["raw_aligns"] = kwargs["bam"]
 
     cluster.cluster_reads(kwargs)
 
@@ -104,15 +103,16 @@ def launch_external_mapper(kwargs):
     $1 reference genome
     $2 .fastq file; interleaved if paired-end, otherwise single end reads"""
 
-    if kwargs["procs"] > 1:
-        p = int(kwargs["procs"] / 2)
-        other_p = kwargs["procs"] - p
-    else:
-        p = kwargs["procs"]
-        other_p = 1
+    # if kwargs["procs"] > 1:
+    #     p = int(kwargs["procs"]) - 1
+    #     other_p = 1  # kwargs["procs"] - p
+    # else:
+    #     p = kwargs["procs"]
+    #     other_p = 1
 
+    p = int(kwargs["procs"])
     if not kwargs["map_script"] and kwargs["mapper"] == "bwamem":
-        command = "bwa mem -c 2000 -Y -t {procs} -P -a {ref} {s}1.fq {s}2.fq".format(procs=p,
+        command = "bwa mem -c 2000 -Y -t {procs} -a {ref} {s}1.fq {s}2.fq".format(procs=p - 1 if p > 1 else 1,
                                                                              ref=kwargs["reference"],
                                                                              s=kwargs["fastq"])
 
@@ -134,7 +134,7 @@ def launch_external_mapper(kwargs):
     click.echo("Mapping command:\n" + command, err=True)
     proc = Popen(command, stdout=PIPE, shell=True)
 
-    return proc, p, other_p
+    return proc, p, 1  # Not fnfi align always has 1 core assigned
 
 
 def sort_and_index(kwargs):
@@ -143,7 +143,7 @@ def sort_and_index(kwargs):
     c = c.format(fix=kwargs["out_pfix"], p=kwargs["procs"])
     click.echo(c, err=True)
     check_call(c, shell=True)
-    os.remove(kwargs["outsam"])
+    os.remove(kwargs["output"])
 
 
 # Interface:
@@ -166,6 +166,8 @@ def cli():
 @cli.command("run")
 @click.argument('reference', required=True, type=click.Path(exists=False))
 @click.argument("bam", required=True, type=click.Path(exists=True))
+#@click.option('--input-format', help="Type of alignment file.", default="bam", type=click.Choice(["bam", "cram", "sam"]),
+#              show_default=True)
 @click.option('--include', help=".bed file, limit calls to regions", default=None, type=click.Path(exists=True))
 @click.option('--search', help=".bed file, limit search to regions", default=None, type=click.Path(exists=True))
 @click.option('--exclude', help=".bed file, do not search/call SVs within regions. Overrides include/search",
@@ -202,7 +204,7 @@ def run_command(ctx, **kwargs):
 @click.pass_context
 def find_reads(ctx, **kwargs):
     """Filters input .bam for read-pairs that are discordant or have a soft-clip of length >= '--clip-length'"""
-    # insert_median, insert_stdev, read_length, out_name
+    # Add arguments to context insert_median, insert_stdev, read_length, out_name
     ctx = apply_ctx(ctx, kwargs)
     return find_pairs.process(ctx.obj)
 
@@ -220,7 +222,7 @@ def find_reads(ctx, **kwargs):
               default=defaults["fq1"], type=click.Path(), show_default=True)
 @click.option("--fq2",  help="Fastq reads 2, used to add soft-clips to all hard-clipped read 2 alignments",
               default=defaults["fq2"], type=click.Path(), show_default=True)
-@click.option("--max_insertion", help="Maximum insertion within read", default=defaults["max_insertion"], type=float, show_default=True)
+@click.option("--max-insertion", help="Maximum insertion within read", default=defaults["max_insertion"], type=float, show_default=True)
 @click.option("--min-aln", help="Minimum alignment length", default=defaults["min_aln"], type=float, show_default=True)
 @click.option("--max-overlap", help="Maximum overlap between successive alignments", default=defaults["max_overlap"], type=float, show_default=True)
 @click.option("--ins-cost", help="Insertion cost", default=defaults["ins_cost"], type=float, show_default=True)
@@ -243,9 +245,11 @@ def fnfi_aligner(ctx, **kwargs):
 
 
 @cli.command("call-events")
-@click.argument('raw-bam', required=True, type=click.Path(exists=True))
-@click.argument('sv-bam', required=True, type=click.Path(exists=True))
+@click.argument('raw-aligns', required=True, type=click.Path(exists=True))
+@click.argument('sv-aligns', required=True, type=click.Path(exists=True))
 @click.argument("output", required=False, type=click.Path())
+#@click.option('--input-format', help="Type of alignment file.", default="bam", type=click.Choice(["bam", "cram", "sam"]),
+#              show_default=True)
 @click.option('--clip-length', help="Minimum soft-clip length; >= threshold are kept.", default=defaults["clip_length"], type=int,
               show_default=True)
 @click.option("--insert-median", help="Template insert size", default=defaults["insert_median"], type=float)
