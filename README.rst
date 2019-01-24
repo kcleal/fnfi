@@ -2,7 +2,7 @@
 fnfi
 ====
 
-fnfi is a collection of tools for detection of structural variants, originally designed for identifying telomere fusions.
+fnfi is a collection of tools for mapping and calling structural variants.
 
 
 Installation
@@ -13,27 +13,54 @@ Install using::
     # Or
     $ pip install .
 
-Requires python>=2.7, c++11 compatible compiler. For macosx, minimum version is 10.9. Python packages needed: click,
+Requires Python >= 2.7, c++ compatible compiler. Python packages needed: click,
 numpy, pandas, pysam, pybedtools, natsort, networkx, scikit-learn, ncls.
 
-Recommended aligners: bwa mem, lastal
+Required external tools on path: `samtools <http://www.htslib.org/>`_
+
+Recommended external tools on path: `bwa mem <https://github.com/lh3/bwa/>`_
 
 Usage
 -----
-Sub commands are::
+Available commands::
 
     $ fnfi run
     $ fnfi find-reads
     $ fnfi align
     $ fnfi call-events
 
-Basic usage command is::
+
+Choosing alignments from a list
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Given a list of candidate alignments for paired-end reads, `fnfi align` will perform split read-pairing, or for single
+end reads will selects an optimal spanning set of alignments.
+
+For pairing using paired-end alignments from a candidate list::
+
+
+    $ fnfi align all_alignments.sam > output_alignments.sam
+
+Or can be run in a stream using bwa mem in all-mapping mode (use of -a option in bwa)::
+
+
+    $ bwa mem -a -t8 ref.fa read1.fq read2.fq | fnfi align - > output_alignments.sam
+
+Or run in single end mode::
+
+
+    $ bwa mem -a -t8 ref.fa contigs.fa | fnfi align --paired False - > output_alignments.sam
+
+
+Calling structural variants
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Currently under development and not intended for use.
+Structural variant pipeline basic usage::
 
     $ fufi run reference.fa your.bam > results.csv
 
 For help use::
 
     $ fufi --help
-    $ fufi find-reads|run|align|call-events --help
+    $ fufi COMMAND --help
 
 For more extensive documentation refer to the manual.
