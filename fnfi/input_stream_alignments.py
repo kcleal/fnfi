@@ -129,7 +129,7 @@ def process_reads(args):
 
     # Use single process for debugging
     else:
-        click.echo("Single process", err=True)
+        click.echo("fnfi single process", err=True)
 
         itr = data_io.iterate_mappings(args, version)
         header_string = next(itr)

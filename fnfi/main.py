@@ -112,7 +112,7 @@ def launch_external_mapper(kwargs):
 
     p = int(kwargs["procs"])
     if not kwargs["map_script"] and kwargs["mapper"] == "bwamem":
-        command = "bwa mem -c 2000 -Y -t {procs} -a {ref} {s}1.fq {s}2.fq".format(procs=p - 1 if p > 1 else 1,
+        command = "bwa mem -v 1 -c 2000 -Y -t {procs} -a {ref} {s}1.fq {s}2.fq".format(procs=p - 1 if p > 1 else 1,
                                                                              ref=kwargs["reference"],
                                                                              s=kwargs["fastq"])
 

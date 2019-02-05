@@ -10,8 +10,6 @@ extensions = [
         ["fnfi/align_path_c.pyx"],
         library_dirs=[numpy.get_include()],
         language="c++",
-        #extra_compile_args=["-std=c++11", "-mmacosx-version-min=10.9"],
-        #extra_link_args=["-std=c++11"]
         ),
 
     Extension(
@@ -19,8 +17,6 @@ extensions = [
             ["fnfi/c_io_funcs.pyx"],
             library_dirs=[numpy.get_include()],
             language="c++",
-            #extra_compile_args=["-std=c++11", "-mmacosx-version-min=10.9"],
-            #extra_link_args=["-std=c++11"]
             ),
 
     Extension(
