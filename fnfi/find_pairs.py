@@ -49,7 +49,8 @@ def get_reads(args):
         if not os.path.exists(args["dest"]):
             os.makedirs(args["dest"])
     else:
-        out_name = args["bam"].rsplit(".", 1)[0] + "." + args["post_fix"]
+        out_name = os.getcwd() + "/" + args["bam"].rsplit("/", 1)[1].rsplit(".", 1)[0] + "." + args["post_fix"]
+        # out_name = args["bam"].rsplit(".", 1)[0] + "." + args["post_fix"]
 
     if args["mapper"] == "last":
         call("samtools view -H -o {}.dict {}".format(out_name, args["bam"]), shell=True)
@@ -58,6 +59,7 @@ def get_reads(args):
 
     insert_size = []
     read_length = []
+
     for r in bam_i:
 
         chrom = bam.get_reference_name(r.rname)
@@ -90,9 +92,11 @@ def get_reads(args):
 
     click.echo("Retrieving {} query names into {}".format(len(read_names), out_name + ".bam"), err=True)
     outbam = pysam.AlignmentFile(out_name + ".bam", "wb", template=bam)
+
     for r in bam.fetch():
         if r.qname in read_names and not r.flag & 2304:  # Skip not primary, and supplementary reads
             outbam.write(r)
+
     outbam.close()
 
     # Save the insert size and read length for later

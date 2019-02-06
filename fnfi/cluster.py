@@ -5,7 +5,6 @@ import os
 import multiprocessing
 import time
 from collections import defaultdict, Counter
-from threading import Thread
 from subprocess import call
 import click
 import networkx as nx
@@ -17,6 +16,7 @@ import pandas as pd
 import array
 import caller
 import data_io
+import pickle
 
 try:
     from StringIO import StringIO
@@ -518,7 +518,7 @@ def get_reads(infile, sub_graph, max_dist, rl, read_buffer):
     return rd
 
 
-def construct_graph(args, infile, max_dist, buf_size=100000, input_windows=()):  # todo add option for read buffer length
+def construct_graph(args, infile, max_dist, buf_size=10000, input_windows=()):  # todo add option for read buffer length
 
     regions = data_io.overlap_regions(args["include"])
 
@@ -680,62 +680,6 @@ def construct_graph(args, infile, max_dist, buf_size=100000, input_windows=()): 
     return G, read_buffer
 
 
-def setup_multi(args, worker, outf):
-    cpus = args["procs"] if args["procs"] != 0 else multiprocessing.cpu_count()
-    click.echo("fnfi align runnning {} cpus".format(cpus), err=True)
-
-    the_queue = multiprocessing.JoinableQueue(maxsize=cpus + 2)
-    out_queue = multiprocessing.Queue()
-
-    the_pool = multiprocessing.Pool(args["procs"] if args["procs"] != 0 else multiprocessing.cpu_count(),
-                                    worker, (the_queue, out_queue,))
-
-    def writer_thread(q, outsam):
-        while True:
-            aln = q.get()
-            if aln == "Done":
-                break
-            elif aln == "Job failed":
-                click.echo("job failed", err=True)
-            elif len(aln) > 1:
-                outsam.write(aln)
-
-        click.echo("Writing done", err=True)
-
-    writer = Thread(target=writer_thread, args=(out_queue, outf,))
-    writer.setDaemon(True)
-    writer.start()
-    return the_queue, out_queue, writer
-
-
-# def worker(queue, out_queue):
-#     while True:
-#         job = queue.get(True)
-#
-#         if job == "Done":
-#             queue.task_done()
-#             out_queue.put("Done")
-#             break
-#
-#         else:
-#             big_string = ""
-#             for data_tuple in job:
-#                 read_template = data_io.make_template(*data_tuple)
-#                 process_template(read_template)
-#                 if read_template['passed']:
-#                     outstring = data_io.to_output(read_template)
-#                     if outstring:
-#                         big_string += outstring
-#                     else:
-#                         pass  # No mappings
-#
-#             if len(big_string) > 0:
-#                 out_queue.put(big_string)
-#             else:
-#                 click.echo("WARNING: no output from job.", err=True)
-#         queue.task_done()
-
-
 def partition_intervals(intervals):
     """Generates partitions rather.
     >>> partition_intervals( [('chr1', 1, 4), ('chr1', 2, 5), ('chr2', 3, 5)] )
@@ -814,7 +758,7 @@ def make_merge_graph(chr1_itv, chr2_itv, sub_graph_id, links_d):
     # Get partitions for each chrom region
     # Some intervals overlap, merge these into single intervals, any1==True when some intervals were merged
     parts, any1 = partition_intervals(chr1_itv + chr2_itv)
-    click.echo("N partitons {}".format(len(parts)), err=True)
+
     # if any1:
     #     bloc_model_unconnected = blockmodel(ol_G, parts)
     #
@@ -899,11 +843,6 @@ def kd_cluster(args, infile, max_dist):
             primary_seen.add(name)
         count += 1
 
-        # if r.qname == "HWI-D00360:6:H81VLADXX:2:2101:8983:94119":
-        #     echo(cmap_key, pos1, pos2)
-        # if count > 500000:
-        #     break
-
     del primary_seen  # Garbage collect
 
     sub_graph_id = 0
@@ -911,8 +850,8 @@ def kd_cluster(args, infile, max_dist):
         # For each chromosome pair
         parray = np.array(positions, dtype=np.uint32).reshape((-1, 2))
         chr1, chr2 = infile.get_reference_name(cmap_key[0]), infile.get_reference_name(cmap_key[1])
-
-        click.echo("Calculating NN; links={} {}<-->{}".format(len(parray), chr1, chr2), err=True)
+        if chr1 == chr2:
+            click.echo("Calculating NN; links={} {}<-->{}".format(len(parray), chr1, chr2), err=True)
 
         # Use fast nearest neighbour lookup
         neigh = AnnoyIndex(2, metric="manhattan")
@@ -1157,11 +1096,43 @@ def get_regions_windows(args, unique_file_id, infile, max_dist):
     return region_windows
 
 
+def worker(argument_set):
+    args, infile_params, max_dist, region_pair = argument_set
+    infile = pysam.AlignmentFile(*infile_params)
+    G, read_buffer = construct_graph(args, infile, max_dist, input_windows=region_pair)
+
+    potential_events = []
+    for grp in nx.connected_component_subgraphs(G):  # Get large components, possibly multiple events
+
+        reads = get_reads(infile, grp, max_dist, int(args['read_length']), read_buffer)
+
+        bm = make_block_model(grp, args["insert_median"], args["insert_stdev"], args["read_length"])
+
+        if len(bm.nodes()) == 0:
+            continue
+        bm = block_model_evidence(bm, grp)  # Annotate block model with evidence
+
+        for event in caller.call_from_block_model(bm, grp, reads, infile, args["clip_length"],
+                                                  args["insert_median"], args["insert_stdev"]):
+            if event:
+                potential_events.append(event)
+
+    return potential_events
+
+
+def check_pkl(val):
+    try:
+        pickle.dumps(val)
+        return True
+    except:
+        return False
+
+
 def cluster_reads(args):
     t0 = time.time()
 
     data_io.mk_dest(args["dest"])
-    if args["dest"] == None:
+    if args["dest"] is None:
         args["dest"] = "."
 
     kind = args["sv_aligns"].split(".")[-1]
@@ -1169,25 +1140,29 @@ def cluster_reads(args):
 
     click.echo("Input file is {}, (.{} format)".format(args["sv_aligns"], kind), err=True)
     infile = pysam.AlignmentFile(args["sv_aligns"], opts[kind])
+    infile_params = (args["sv_aligns"], opts[kind])
 
     max_dist = int(args["insert_median"] + (5 * args["insert_stdev"]))  # > distance reads drop out of clustering scope
     click.echo("Maximum clustering distance is {}".format(max_dist), err=True)
 
-    if args["output"] == "-" or args["output"] is None:
-        click.echo("Output to stdout", err=True)
+    if args["svs_out"] == "-" or args["svs_out"] is None:
+        click.echo("SVs output to stdout", err=True)
         outfile = sys.stdout
     else:
-        click.echo("Output to {}".format(args["output"]), err=True)
-        outfile = open(args["output"], "w")
+        click.echo("SVs output to {}".format(args["svs_out"]), err=True)
+        outfile = open(args["svs_out"], "w")
 
-    unique_file_id = uuid.uuid4().hex()
+    unique_file_id = str(uuid.uuid4())
+    click.echo("Tempfile name {}".format(unique_file_id), err=True)
 
     region_windows = get_regions_windows(args, unique_file_id, infile, max_dist)
 
     regions = data_io.overlap_regions(args["include"])
 
-    click.echo("Calling SVs...", err=True)
-    # Write events to output
+    click.echo("Calling SVs with processors={}...".format(args["procs"]), err=True)
+
+    args2 = {k: v for k, v in args.items() if check_pkl(v)}  # Picklable args
+
     with outfile:
         head = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "total_reads", "cipos95A", "cipos95B",
          "DP", "DApri", "DN", "NMpri", "SP", "EVsup", "DAsup",
@@ -1195,50 +1170,40 @@ def cluster_reads(args):
 
         outfile.write("\t".join(head) + "\n")
 
+        jobs = []
+        reg_counter = 0
+        c = 0
         for region_pair in region_windows:
 
-            G, read_buffer = construct_graph(args, infile, max_dist, input_windows=region_pair)
-            c = 0
+            jobs.append((args2, infile_params, max_dist, region_pair))
 
-            potential_events = []
-            for grp in nx.connected_component_subgraphs(G):  # Get large components, possibly multiple events
+            if len(jobs) == 20 or reg_counter == len(region_windows) - 1:  # Todo add chunk size parameter
+                # Process jobs
+                if args["procs"] > 1:
+                    pool = multiprocessing.Pool(args["procs"])
+                    target = pool.map_async(worker, jobs)  # Asynchronous return
+                    pool.close()
+                    pool.join()
+                    result = target.get()
+                else:
+                    result = map(worker, jobs)
 
-                reads = get_reads(infile, grp, max_dist, int(args['read_length']), read_buffer)
+                for potential_events in result:
+                    if potential_events:
+                        if potential_events:
+                            # Keep one best event per region-pair (default mode)
+                            best = sorted(potential_events, key=lambda x: sum([x["pe"], x["sup"]]))[-1]
 
-                bm = make_block_model(grp, args["insert_median"], args["insert_stdev"], args["read_length"])
-                if len(bm.nodes()) == 0:
-                    continue
-                bm = block_model_evidence(bm, grp)  # Annotate block model with evidence
+                            # Collect coverage information
+                            event_string = caller.get_raw_cov_information(best, infile, regions)
+                            if event_string:
+                                outfile.write(event_string)
+                                c += 1
+                jobs = []
 
-                for event in caller.call_from_block_model(bm, grp, reads, infile, args["clip_length"],
-                                                          args["insert_median"], args["insert_stdev"]):
-                    if event:
-                        potential_events.append(event)
+            reg_counter += 1
 
-            if potential_events:
-                # Keep one best event per region-pair (default mode)
-                best = sorted(potential_events, key=lambda x: sum([x["pe"], x["sup"]]))[-1]
+        assert len(jobs) == 0
 
-                # Collect coverage information
-                event_string = caller.get_raw_cov_information(best, infile, regions)
-                if event_string:
-                    outfile.write(event_string)
-                    c += 1
-#                else:
-#                    pass
-                    # Send off for multiprocessing here. Need to find a way of pickling external objects
-                    # reads can be converted to a dict like object
-                    # infile needs the get_reference_name function
-                    # regions is a ncls object
-                    # dta = (infile, grp, args["insert_median"], args["insert_stdev"], args["read_length"], reads,
-                    #        args["clip_length"], regions)
-                    # the_queue.put(dta)
-
-            # if args["procs"] != 0:
-            #     the_queue.join()  # Wait for jobs to finish
-            #     the_queue.put("Done")  # Send message to stop workers
-            #     writer.join()  # Wait for writer to closing
-
-
-        click.echo("SV calling completed in {} h:m:s\n".format(str(datetime.timedelta(seconds=int(time.time() - t0)))),
+        click.echo("{} SV called in {} h:m:s\n".format(c, str(datetime.timedelta(seconds=int(time.time() - t0)))),
                    err=True)

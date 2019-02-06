@@ -35,6 +35,7 @@ defaults = {
             "match_score": 1.,
             "bias": 1.15,
             "output": "-",
+            "svs_out": "-",
             "replace_hardclips": "False",
             "fq1": None,
             "fq2": None
@@ -70,11 +71,17 @@ def pipeline(kwargs):
         kwargs["fq1"] = kwargs["out_pfix"] + "1.fq"
         kwargs["fq2"] = kwargs["out_pfix"] + "2.fq"
 
-    kwargs["sam"] = process.stdout
+    # os.fdopen(process.stdout.fileno(), "r", 1)  # Alyways get this error close failed in file object destructor
+    kwargs["sam"] = iter(process.stdout.readline, "")
     kwargs["output"] = kwargs["out_pfix"] + ".sam"
 
     input_stream_alignments.process_reads(kwargs)
+
     process.kill()
+
+    if not single:
+        kwargs["procs"] = remaining_procs + used_procs - 1
+
     sort_and_index(kwargs)
 
     # Clean up
@@ -84,9 +91,6 @@ def pipeline(kwargs):
 
     if kwargs["mapper"] == "last":
         os.remove(kwargs["out_pfix"] + ".dict")
-
-    if not single:
-        kwargs["procs"] = remaining_procs + used_procs
 
     kwargs["sv_aligns"] = kwargs["out_pfix"] + ".srt.bam"
     kwargs["raw_aligns"] = kwargs["bam"]
@@ -112,7 +116,7 @@ def launch_external_mapper(kwargs):
 
     p = int(kwargs["procs"])
     if not kwargs["map_script"] and kwargs["mapper"] == "bwamem":
-        command = "bwa mem -v 1 -c 2000 -Y -t {procs} -a {ref} {s}1.fq {s}2.fq".format(procs=p - 1 if p > 1 else 1,
+        command = "bwa mem -Y -t {procs} -a {ref} {s}1.fq {s}2.fq".format(procs=p - 1 if p > 1 else 1,
                                                                              ref=kwargs["reference"],
                                                                              s=kwargs["fastq"])
 
@@ -132,9 +136,10 @@ def launch_external_mapper(kwargs):
                                                                        s=kwargs["fastq"])
 
     click.echo("Mapping command:\n" + command, err=True)
-    proc = Popen(command, stdout=PIPE, shell=True)
 
-    return proc, p, 1  # Not fnfi align always has 1 core assigned
+    proc = Popen(command, stdout=PIPE, shell=True, bufsize=0, universal_newlines=True)
+
+    return proc, p, 1  # Note fnfi align always has 1 core assigned
 
 
 def sort_and_index(kwargs):
@@ -166,8 +171,6 @@ def cli():
 @cli.command("run")
 @click.argument('reference', required=True, type=click.Path(exists=False))
 @click.argument("bam", required=True, type=click.Path(exists=True))
-#@click.option('--input-format', help="Type of alignment file.", default="bam", type=click.Choice(["bam", "cram", "sam"]),
-#              show_default=True)
 @click.option('--include', help=".bed file, limit calls to regions", default=None, type=click.Path(exists=True))
 @click.option('--search', help=".bed file, limit search to regions", default=None, type=click.Path(exists=True))
 @click.option('--exclude', help=".bed file, do not search/call SVs within regions. Overrides include/search",
@@ -181,7 +184,7 @@ Overrides --mapper argument. Script must take positional arguments as: $1 refere
 $2 read1.fastq file $3 read2.fastq if paired-end \
 $4 threads to use""", default=None, type=click.Path(exists=True))
 @click.option("-p", "--procs", help="Processors to use", type=cpu_range, default=1, show_default=True)
-@click.option('--dest', help="Destination folder to use/create for saving results. Defaults to directory of input bam",
+@click.option('--dest', help="Destination folder to use/create for saving results. Defaults to current directory",
               default=None, type=click.Path())
 @click.pass_context
 def run_command(ctx, **kwargs):
@@ -196,10 +199,10 @@ def run_command(ctx, **kwargs):
 @click.option('--clip-length', help="Minimum soft-clip length; >= threshold are kept", default=defaults["clip_length"], type=int,
               show_default=True)
 @click.option("-p", "--procs", help="Processors to use", type=cpu_range, default=defaults["procs"], show_default=True)
-@click.option('--search', help=".bed file, limit search to regions.", default=None, type=click.Path(exists=True))
+@click.option('--search', help=".bed file, limit search to regions", default=None, type=click.Path(exists=True))
 @click.option('--exclude', help=".bed file, do not search/call SVs within regions. Overrides include/search",
               default=None, type=click.Path(exists=True))
-@click.option('--dest', help="Destination folder to use/create for saving results. Defaults to directory of input bam",
+@click.option('--dest', help="Destination folder to use/create for saving results. Defaults to current directory",
               default=None, type=click.Path())
 @click.pass_context
 def find_reads(ctx, **kwargs):
@@ -233,8 +236,8 @@ def find_reads(ctx, **kwargs):
 @click.option("-p", "--procs", help="Processors to use", type=cpu_range, default=1, show_default=True)
 @click.option('--include', help=".bed file, elevate alignment scores in these regions. Determined by '--bias'",
               default=None, type=click.Path(exists=True))
-@click.option("--bias", help="""Multiply match score by bias if alignment falls within regions .bed file.
-Unused if .bed not provided.""", default=defaults["bias"], type=float, show_default=True)
+@click.option("--bias", help="""Multiply match score by bias if alignment falls within regions .bed file
+Unused if .bed not provided""", default=defaults["bias"], type=float, show_default=True)
 @click.pass_context
 def fnfi_aligner(ctx, **kwargs):
     """Choose an optimal set of alignments from from a collection of candidate alignments.
@@ -247,18 +250,16 @@ def fnfi_aligner(ctx, **kwargs):
 @cli.command("call-events")
 @click.argument('raw-aligns', required=True, type=click.Path(exists=True))
 @click.argument('sv-aligns', required=True, type=click.Path(exists=True))
-@click.argument("output", required=False, type=click.Path())
-#@click.option('--input-format', help="Type of alignment file.", default="bam", type=click.Choice(["bam", "cram", "sam"]),
-#              show_default=True)
+@click.argument("svs_out", required=False, type=click.Path())
 @click.option('--clip-length', help="Minimum soft-clip length; >= threshold are kept.", default=defaults["clip_length"], type=int,
               show_default=True)
 @click.option("--insert-median", help="Template insert size", default=defaults["insert_median"], type=float)
 @click.option("--insert-stdev",  help="Template standard-deviation", default=defaults["insert_stdev"], type=float)
 @click.option("--read-length",  help="Length of a read in base-pairs", default=defaults["read_length"], type=float)
-@click.option('--verbose', type=click.Choice(["True", "False"]), default="True", help="If set to 'True' output is directed to a folder with the same name as the input file. Otherwise a .vcf file is generated.")
+@click.option('--verbose', type=click.Choice(["True", "False"]), default="True", help="If set to 'True' output is directed to a folder with the same name as the input file. Otherwise a .vcf file is generated")
 @click.option("-p", "--procs", help="Processors to use", type=cpu_range, default=defaults["procs"], show_default=True)
-@click.option('--include', help=".bed file, limit calls to regions.", default=None, type=click.Path(exists=True))
-@click.option('--dest', help="Folder to use/create for saving results. Defaults to directory of input bam directory",
+@click.option('--include', help=".bed file, limit calls to regions", default=None, type=click.Path(exists=True))
+@click.option('--dest', help="Folder to use/create for saving results. Defaults to current directory",
               default=None, type=click.Path())
 @click.pass_context
 def call_events(ctx, **kwargs):
@@ -269,7 +270,7 @@ def call_events(ctx, **kwargs):
 
 
 @cli.command("run-tests", context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
-@click.option('--dest', required=True,  help="Folder to use/create for saving results.",
+@click.option('--dest', required=True,  help="Folder to use/create for saving results",
               default=None, type=click.Path())
 @click.option('--reference', required=True, type=click.Path(),  help="Path to reference for mapper to use")
 @click.pass_context
