@@ -39,7 +39,6 @@ setup(
         'numpy',
         'pandas',
         'pysam',
-        'pybedtools',
         'networkx',
         'scikit-learn',
         'ncls',

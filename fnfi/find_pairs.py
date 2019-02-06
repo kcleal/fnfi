@@ -8,7 +8,6 @@ import pysam
 import time
 import datetime
 import numpy as np
-from pybedtools import BedTool
 import os
 import click
 from subprocess import call
@@ -23,11 +22,13 @@ def iter_bam(bam, search):
             yield aln
     else:
         click.echo("Limiting search to {}".format(search), err=True)
-        for item in BedTool(search):
-            chrom, start, end = item[:3]
-
-            for aln in bam.fetch(reference=chrom, start=int(start), end=int(end)):  # Also get unmapped reads
-                yield aln
+        with open(search, "r") as bed:
+            for line in bed:
+                if line[0] == "#":
+                    continue
+                chrom, start, end = line.split("\t")[:3]
+                for aln in bam.fetch(reference=chrom, start=int(start), end=int(end)):  # Also get unmapped reads
+                    yield aln
 
 
 def get_reads(args):
@@ -102,8 +103,7 @@ def get_reads(args):
     # Save the insert size and read length for later
     insert_median, insert_stdev = np.median(insert_size), np.std(insert_size)
     read_length = np.mean(read_length)
-    click.echo("Median insert size: {} (+/- {})".format(np.round(insert_median, 2), np.round(insert_stdev, 2)), err=True)
-    click.echo("Read length: {}".format(np.round(read_length, 1)), err=True)
+    click.echo("Median insert size: {} (+/- {}). Read length: {}".format(np.round(insert_median, 2), np.round(insert_stdev, 2), np.round(read_length, 1)), err=True)
 
     return insert_median, insert_stdev, read_length, out_name
 
@@ -134,7 +134,7 @@ def process(args):
 
     insert_median, insert_stdev, read_length, out_name = get_reads(args)
     convert_to_fastq(args, out_name)
-    click.echo("Collected reads in {} h:m:s\n".format(str(datetime.timedelta(seconds=int(time.time() - t0)))), err=True)
+    click.echo("Collected reads in {} h:m:s".format(str(datetime.timedelta(seconds=int(time.time() - t0)))), err=True)
 
     return {"insert_median": insert_median,
             "insert_stdev": insert_stdev,

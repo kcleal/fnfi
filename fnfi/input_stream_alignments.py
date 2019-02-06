@@ -150,5 +150,5 @@ def process_reads(args):
     if args["output"] != "-" or args["output"] is not None:
         outsam.close()
 
-    click.echo("fnfi aln completed in {} h:m:s\n".format(str(datetime.timedelta(seconds=int(time.time() - t0)))),
+    click.echo("fnfi aln completed in {} h:m:s".format(str(datetime.timedelta(seconds=int(time.time() - t0)))),
                err=True)

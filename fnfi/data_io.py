@@ -240,7 +240,7 @@ def iterate_mappings(args, version):
         fq = fq_getter(fq_iter, name, args, fq_buffer)
         yield (rows, args, max_d, last_seen_chrom, fq)
 
-    click.echo("Total processed " + str(total) + "\n", err=True)
+    click.echo("Total processed " + str(total), err=True)
 
 
 if __name__ == "__main__":

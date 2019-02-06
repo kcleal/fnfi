@@ -1091,7 +1091,7 @@ def get_regions_windows(args, unique_file_id, infile, max_dist):
     # Remove temp files
     for f in temps + [depth_temp_in, depth_temp_out]:
         os.remove(f)
-    click.echo("Regions prepared in {} h:m:s\n".format(str(datetime.timedelta(seconds=int(time.time() - t0)))),
+    click.echo("Regions prepared in {} h:m:s".format(str(datetime.timedelta(seconds=int(time.time() - t0)))),
                err=True)
     return region_windows
 
@@ -1205,5 +1205,5 @@ def cluster_reads(args):
 
         assert len(jobs) == 0
 
-        click.echo("{} SV called in {} h:m:s\n".format(c, str(datetime.timedelta(seconds=int(time.time() - t0)))),
+        click.echo("{} SV called in {} h:m:s".format(c, str(datetime.timedelta(seconds=int(time.time() - t0)))),
                    err=True)

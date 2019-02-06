@@ -44,10 +44,9 @@ defaults = {
 align_args = {}
 
 
-def pipeline(kwargs):
+def pipeline(kwargs):  # Todo add a verbosity option (keep some or all of temp files)
     t0 = time.time()
     click.echo("Running fnfi pipeline", err=True)
-    click.echo(kwargs, err=True)
     if kwargs["bam"] is None:
         raise IOError("Error: Input bam is None")
 
@@ -96,7 +95,7 @@ def pipeline(kwargs):
     kwargs["raw_aligns"] = kwargs["bam"]
 
     cluster.cluster_reads(kwargs)
-
+    # Todo cleanup of other temp files
     click.echo("fnfi run completed in {} h:m:s\n".format(str(datetime.timedelta(seconds=int(time.time() - t0)))),
                err=True)
 
