@@ -496,8 +496,6 @@ def get_raw_cov_information(r, raw_bam, regions):
         kind = "extra-regional"
     if ar and br:
         if r["chrA"] == r["chrB"]:
-            # rA = regions[r["chrA"]].find_overlap(quicksect.Interval(r["posA"], r["posA"]+1))[0]
-            # rB = regions[r["chrB"]].find_overlap(quicksect.Interval(r["posB"], r["posB"] + 1))[0]
             rA = list(regions[r["chrA"]].find_overlap(r["posA"], r["posA"] + 1))[0]
             rB = list(regions[r["chrB"]].find_overlap(r["posB"], r["posB"] + 1))[0]
 

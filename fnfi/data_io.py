@@ -2,7 +2,6 @@
 Iterate over the output from last and send data object back to the pair_reads_from_LAST script
 """
 
-import re
 from collections import defaultdict
 import os
 import click
@@ -81,7 +80,6 @@ def to_output(template):
         return ""
 
     return "".join(template["name"] + "\t" + "\t".join(i) + "\n" for i in sam)
-
 
 
 def overlap_regions(bed):
