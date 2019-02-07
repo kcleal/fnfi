@@ -249,7 +249,7 @@ def fnfi_aligner(ctx, **kwargs):
 @cli.command("call-events")
 @click.argument('raw-aligns', required=True, type=click.Path(exists=True))
 @click.argument('sv-aligns', required=True, type=click.Path(exists=True))
-@click.argument("svs_out", required=False, type=click.Path())
+@click.argument("svs-out", required=False, type=click.Path())
 @click.option('--clip-length', help="Minimum soft-clip length; >= threshold are kept.", default=defaults["clip_length"], type=int,
               show_default=True)
 @click.option("--insert-median", help="Template insert size", default=defaults["insert_median"], type=float)
@@ -339,15 +339,18 @@ def test_run_command(ctx, **kwargs):
 
 if __name__ == "__main__":
 
-    df = defaults
-    print df
+    # df = defaults
+    # df["sam"] = open("/Users/kezcleal/Documents/Data/fusion_finder_development/Split_read_simulator/paired_end_with_one_split/pairs.bwamem_allf.sam", "r")
+    # df["output"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/Split_read_simulator/sv_gen_mapped/test.fnfi.unsrt.sam"
 
-    #@click.argument("sam", type=click.File('r'), required=True)
-    #@click.argument("output", required=False, type=click.Path())
+    #input_stream_alignments.process_reads(df)
+    k = defaults
+    k["sv_aligns"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/Event_simulator/bwa.0.2.srt.fnfi.srt.bam"
+    k["raw_aligns"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/Event_simulator/Events/bwa.0.2.srt.bam"
+    k["include"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/test/include_tels.bed"
+    k["svs_out"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/Event_simulator/test1.csv"
+    k["procs"] = 8
+    name = "fufi2_id{}".format("0.2")
 
-    df["sam"] = open("/Users/kezcleal/Documents/Data/fusion_finder_development/Split_read_simulator/paired_end_with_one_split/pairs.bwamem_allf.sam", "r")
-    df["output"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/Split_read_simulator/sv_gen_mapped/test.fnfi.unsrt.sam"
-
-    input_stream_alignments.process_reads(df)
-
+    cluster.cluster_reads(k)
     #call("diff /Users/kezcleal/Documents/Data/fusion_finder_development/Split_read_simulator/paired_end_with_one_split/pairs.fnfi.unsrt.sam /Users/kezcleal/Documents/Data/fusion_finder_development/Split_read_simulator/sv_gen_mapped/test.fnfi.unsrt.sam", shell=True)

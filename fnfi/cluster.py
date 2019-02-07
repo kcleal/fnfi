@@ -640,7 +640,7 @@ def construct_graph(infile, max_dist, buf_size=100000, input_windows=(), window_
 
     # Add read-pair information to the graph, link regions together
     new_edges = []
-    for g in nx.connected_component_subgraphs(G, copy=True):
+    for g in nx.connected_component_subgraphs(G, copy=False):
 
         # Add white edges between read-pairs which are NOT in the subgraph
         # all_flags: rname: (flag, pos)
@@ -776,7 +776,7 @@ def make_merge_graph(chr1_itv, chr2_itv, sub_graph_id, links_d):
     #             yield u, v, sub_graph_id, bmnodes, n_links_u, n_links_v
     #
     # else:
-    for subg in nx.connected_component_subgraphs(ol_G):
+    for subg in nx.connected_component_subgraphs(ol_G, copy=False):
         sub_graph_id += 1
         sug_nodes = len(subg.nodes())
         for u, v in subg.edges():
