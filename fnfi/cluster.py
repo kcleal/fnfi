@@ -17,7 +17,7 @@ import array
 import caller
 import data_io
 import pickle
-
+import data_io
 try:
     from StringIO import StringIO
 except ImportError:
@@ -259,6 +259,7 @@ def make_nuclei(g):
     sub_grp = nx.Graph()
     look_for = ["y", "g"]
     edge_colors = defaultdict(list)
+
     for e in g.edges(data=True):
         edge_colors[e[2]['c']].append(e)
 
@@ -271,22 +272,29 @@ def make_nuclei(g):
     elif "g" in edge_colors:
         edges = edge_colors["g"]
         look_for = []
-    else:
-        pass  # Single read, no connections
 
     # Look for other unique connected components
     sub_grp.add_edges_from(edges)
 
-    new_edges = []
-    for color in look_for:
-        if color in edge_colors:
-            query_clusters = nx.Graph()
-            query_clusters.add_edges_from(edge_colors[color])
-            for cc in nx.connected_component_subgraphs(query_clusters):
-                if all(i not in sub_grp for i in cc.nodes()):  # Check for overlap with a different nuclei
-                    new_edges += list(cc.edges(data=True))
+    # new_edges = []
+    # for color in look_for:
+    #     if color in edge_colors:
+    #         query_clusters = nx.Graph()
+    #         query_clusters.add_edges_from(edge_colors[color])
+    #         for cc in nx.connected_component_subgraphs(query_clusters):
+    #             if all(i not in sub_grp for i in cc.nodes()):  # Check for overlap with a different nuclei
+    #                 new_edges += list(cc.edges(data=True))
+    #
+    # for k, v in edge_colors.items():
+    #     echo(k, len(v))
+    # echo(len(new_edges), new_edges)
+    # sub_grp.add_edges_from(new_edges)
 
-    sub_grp.add_edges_from(new_edges)
+    # If no edges were added, try adding single reads, check for spanning reads
+    if len(edges) == 0:  # and len(new_edges) == 0:
+        for n, dta in g.nodes(data=True):
+            if dta["s"] == 1:
+                sub_grp.add_node(n)
 
     return sub_grp
 
@@ -518,12 +526,7 @@ def get_reads(infile, sub_graph, max_dist, rl, read_buffer):
     return rd
 
 
-def construct_graph(args, infile, max_dist, buf_size=10000, input_windows=()):  # todo add option for read buffer length
-
-    regions = data_io.overlap_regions(args["include"])
-
-    # nodes = []
-    # edges = []
+def construct_graph(infile, max_dist, buf_size=100000, input_windows=(), window_pad=1000):  # todo add option for read buffer length
 
     all_flags = defaultdict(set)  # Linking clusters together rname: set([(flag, pos)..])
 
@@ -538,43 +541,23 @@ def construct_graph(args, infile, max_dist, buf_size=10000, input_windows=()):  
 
     grey_added = 0
     black_edges = 0
-    chroms_seen = set([])
-
-    lastc_time = time.time()
-    lastc = None
 
     G = nx.Graph()
-    for window in input_windows:
+    winds = [(c, s - window_pad, e + window_pad) for c, s, e in input_windows]
+    for widx, window in enumerate(winds):
 
         for r in infile.fetch(*window):
 
-            # if count % 1000 == 0:
-            #     cc = infile.get_reference_name(r.rname)
-            #     if cc not in chroms_seen:
-            #         chroms_seen.add(cc)
-            #         click.echo("Working on {}".format(cc), err=True)
-            #         t = time.time()
-            #         if lastc:
-            #             click.echo("{} took {}s".format(lastc, t - lastc_time), err=True)
-            #             lastc_time = t
-            #         lastc = cc
-            #
-            #     if count % 50000 == 0:
-            #         if count != 0:
-            #             click.echo("{}:{}, alignnmets {}, b-edges {}, g-edges {}".format(cc, r.pos, count, black_edges, grey_added), err=True)
+            # Limit to regions  # Todo Move this block
+            # regions = data_io.overlap_regions(args["include"])
+            # if regions:
+            #     rname = infile.get_reference_name(r.rname)
+            #     if not data_io.intersecter(regions, rname, r.pos, r.pos + 1):
+            #         rnext = infile.get_reference_name(r.rnext)
+            #         if not data_io.intersecter(regions, rnext, r.pnext, r.pnext + 1):
+            #             continue
 
-            # Limit to regions
-            if regions:
-                rname = infile.get_reference_name(r.rname)  # Todo do a fetch, rather than scan the whole bam file
-                if not data_io.intersecter(regions, rname, r.pos, r.pos + 1):
-                    rnext = infile.get_reference_name(r.rnext)
-                    if not data_io.intersecter(regions, rnext, r.pnext, r.pnext + 1):
-                        continue
-
-            if len(r.cigar) == 0:
-                continue
-
-            if r.flag & 4:  # Unmapped read
+            if len(r.cigar) == 0 or r.flag & 4:
                 continue
 
             n1 = (r.qname, r.flag, r.pos)
@@ -592,17 +575,24 @@ def construct_graph(args, infile, max_dist, buf_size=10000, input_windows=()):  
                     del read_index_buffer[buf_del_index]
                 buf_del_index += 1
 
-            G.add_node(n1, {"p": (r.rname, r.pos)})
-            # nodes.append((n1, {"p": (r.rname, r.pos)}))
-            all_flags[r.qname].add((r.flag, r.pos))
+            # Make a note if read spans both windows, used for filtering connected graphs
+            span = 0
+            rnext = infile.get_reference_name(r.rnext)
+            if widx == 0:
+                look = 1
+            else:
+                look = 0
+            if rnext == winds[look][0] and winds[look][1] <= r.pnext <= winds[look][2]:
+                span = 1
 
+            G.add_node(n1, {"p": (r.rname, r.pos), "s": span})
+            all_flags[r.qname].add((r.flag, r.pos))
             scope.update(r)  # Add alignment to scope
 
             gg = 0
             bb = 0
             yy = 0
             for t, ol, sup_edge in scope.iterate():  # Other read, overlap current read, supplementary edge
-
                 if not t:
                     break
 
@@ -610,16 +600,14 @@ def construct_graph(args, infile, max_dist, buf_size=10000, input_windows=()):  
                 all_flags[t.qname].add((t.flag, t.pos))
 
                 # Four types of edges; black means definite match with overlapping soft-clips. Grey means similar
-                # rearrangement with start and end co-ords on reference genome. Yellow means supplementary matches a primary
+                # rearrangement with start and end co-ords on reference genome.
+                # Yellow means supplementary matches a primary
                 # read; these edges need to be checked when both primary reads are available
                 # Finally white edge means a read1 to read2 edge
                 if ol and not sup_edge:
                     identity, prob_same = align_match(r, t)
-
                     if prob_same > 0.01:  # Add a black edge
-                        # e = (n1, n2, {"c": "b"})
                         G.add_edge(n1, n2, {"c": "b"})
-                        # edges.append(e)
                         black_edges += 1
                         bb += 1
                         if bb > 3:
@@ -632,20 +620,18 @@ def construct_graph(args, infile, max_dist, buf_size=10000, input_windows=()):  
                     continue
 
                 if abs(r.pnext - t.pnext) < max_dist:
-                    # Add a grey edge
-                    # e = (n1, n2, {"c": "g"})
-                    G.add_edge(n1, n2, {"c": "g"})
-                    gg += 1
-                    grey_added += 1
-                    if gg > 3:
-                        break  # Stop the graph getting unnecessarily dense
-                    # edges.append(e)
-                    continue
+
+                    # Add a grey edge if they are both spanning reads
+                    if G.node[n1]["s"] == 1 and G.node[n2]["s"] == 1:
+                        G.add_edge(n1, n2, {"c": "g"})
+                        gg += 1
+                        grey_added += 1
+                        if gg > 3:
+                            break  # Stop the graph getting unnecessarily dense
+                        continue
 
                 elif sup_edge:
                     # Add a yellow edge
-                    #e = (n1, n2, {"c": "y"})
-                    #edges.append(e)
                     G.add_edge(n1, n2, {"c": "y"})
                     yy += 1
                     if yy > 3:
@@ -653,12 +639,7 @@ def construct_graph(args, infile, max_dist, buf_size=10000, input_windows=()):  
                     continue
 
     # Add read-pair information to the graph, link regions together
-    #echo("Constructing graph")
-
-    # G.add_nodes_from(nodes)
-    # G.add_edges_from(edges)
     new_edges = []
-    #echo("Adding read-pair information")
     for g in nx.connected_component_subgraphs(G, copy=True):
 
         # Add white edges between read-pairs which are NOT in the subgraph
@@ -676,7 +657,6 @@ def construct_graph(args, infile, max_dist, buf_size=10000, input_windows=()):  
 
     # Regroup based on white edges (link together read-pairs)
     G.add_edges_from(new_edges)
-    #click.echo("{} alignments processed into overlap graph".format(count - 1), err=True)
     return G, read_buffer
 
 
@@ -757,7 +737,7 @@ def make_merge_graph(chr1_itv, chr2_itv, sub_graph_id, links_d):
 
     # Get partitions for each chrom region
     # Some intervals overlap, merge these into single intervals, any1==True when some intervals were merged
-    parts, any1 = partition_intervals(chr1_itv + chr2_itv)
+    # parts, any1 = partition_intervals(chr1_itv + chr2_itv)
 
     # if any1:
     #     bloc_model_unconnected = blockmodel(ol_G, parts)
@@ -805,8 +785,7 @@ def make_merge_graph(chr1_itv, chr2_itv, sub_graph_id, links_d):
 
 def kd_cluster(args, infile, max_dist):
 
-    click.echo("Finding reads", err=True)
-    # regions = data_io.overlap_regions(args["include"])  # Todo?
+    # regions = data_io.overlap_regions(args["include"])  # Todo add search and limit options
 
     cluster_map = defaultdict(lambda: array.array('L'))
 
@@ -850,18 +829,19 @@ def kd_cluster(args, infile, max_dist):
         # For each chromosome pair
         parray = np.array(positions, dtype=np.uint32).reshape((-1, 2))
         chr1, chr2 = infile.get_reference_name(cmap_key[0]), infile.get_reference_name(cmap_key[1])
-        if chr1 == chr2:
+        if chr1 == chr2 and len(chr1) < 6:
             click.echo("Calculating NN; links={} {}<-->{}".format(len(parray), chr1, chr2), err=True)
 
         # Use fast nearest neighbour lookup
         neigh = AnnoyIndex(2, metric="manhattan")
         for idx, item in enumerate(parray):
             neigh.add_item(idx, item)
-        neigh.build(10)
+        neigh.build(50)
 
         G = nx.Graph()
-
-        numb_neigh = 6  # Add edges between n number of neighbours to a point
+        max_nn = 20
+        min_nn = 10
+        numb_neigh = max_nn  # Add edges between n number of neighbours to a point
         for index, (x, y) in enumerate(parray):
             G.add_node(index)
 
@@ -871,10 +851,10 @@ def kd_cluster(args, infile, max_dist):
                 numb_neigh -= 1
             else:
                 numb_neigh += 1
-            if numb_neigh < 3:
-                numb_neigh = 3
-            elif numb_neigh > 6:
-                numb_neigh = 6
+            if numb_neigh < min_nn:
+                numb_neigh = min_nn
+            elif numb_neigh > max_nn:
+                numb_neigh = max_nn
 
             for index_2, d2 in zip(rng, dists):
                 if index == index_2:  # Skip self
@@ -922,7 +902,7 @@ def region_connectivity(tempin):
     # Need to perform a genome wide merge of intervals, across all chromosome pairs
 
     df.columns = ["chr1", "start1", "end1", "chr2", "start2", "end2", "component", "n_nodes", "u_nodes", "v_nodes"]
-    df = df[(df["chr1"].str.len() <= 5) & (df["chr2"].str.len() <= 5)]
+    df = df[(df["chr1"].str.len() <= 5) & (df["chr2"].str.len() <= 5)]  # Note no calls between non-canonical chroms
     df = df.sort_values(["chr1", "start1"])
 
     links_d = {}
@@ -936,7 +916,7 @@ def region_connectivity(tempin):
         yield u, v, sub_graph_id, n_nodes, n_links_u, n_links_v
 
 
-def analyse_connectivity(f, tmps3):
+def analyse_connectivity(f):
 
     df = pd.read_csv(f, sep="\t", header=None, index_col=None, low_memory=False)
 
@@ -949,70 +929,76 @@ def analyse_connectivity(f, tmps3):
     neighbour_counts = Counter(n1 + n2)
 
     con = []
-    df["n1_connectivity"] = [neighbour_counts[i] for i in n1]
-    df["n2_connectivity"] = [neighbour_counts[i] for i in n2]
+    df["n1_connectivity"] = [neighbour_counts[i] - 1 for i in n1]
+    df["n2_connectivity"] = [neighbour_counts[i] - 1 for i in n2]
     for u, v, unodes, vnodes in zip(n1, n2, df["u_nodes"], df["v_nodes"]):
 
-        u_out = neighbour_counts[u]
-        v_out = neighbour_counts[v]
+        u_out = neighbour_counts[u] - 1
+        v_out = neighbour_counts[v] - 1
 
-        con.append(((float(u_out) / unodes) * (float(v_out) / vnodes)) / 2.)
+        con.append((((float(u_out) / unodes) + 1) * ((float(v_out) / vnodes)) + 1) )
     df["connectivity"] = con
-    df = df[(df["u_nodes"] > 3) & (df["v_nodes"] > 3)]
+
+    # df = df[(df["u_nodes"] > 3) & (df["v_nodes"] > 3)]
 
     # Re-order by chromosome sorted order
-    res = []
-    for idx, r in df.iterrows():
-
-        dr = dict(r)
-        if r["chr1"] == r["chr2"]:
-
-            if r["start1"] > r["start2"]:  # Swap sides
-                start1, end1 = r["start1"], r["end1"]
-                start2, end2 = r["start2"], r["end2"]
-                unodes = r["u_nodes"]
-                vnodes = r["v_nodes"]
-
-                dr["start1"] = start2
-                dr["end1"] = end2
-                dr["start2"] = start1
-                dr["end2"] = end1
-                dr["u_nodes"] = vnodes
-                dr["v_nodes"] = unodes
-
-            start1, end1 = dr["start1"], dr["end1"] + 150
-            start2, end2 = dr["start2"], dr["end2"] + 150
-
-            # Check if intervals overlap
-            if max(start1, start2) <= min(end1, end2):
-                low_start = min(start1, start2)
-                high_end = max(end1, end2)
-                mid = (high_end - low_start) / 2
-                start1 = low_start
-                end1 = low_start + mid
-                start2 = end1
-                end2 = high_end
-                dr["start1"] = start2
-                dr["end1"] = end2
-                dr["start2"] = start1
-                dr["end2"] = end1
-            res.append(dr)
-        else:
-            res.append(dr)
-    df = pd.DataFrame.from_records(res)
+    # res = []
+    # for idx, r in df.iterrows():
+    #     dr = dict(r)
+    #     if r["start1"] == 28336492:
+    #         echo(r)
+    #     if r["chr1"] == r["chr2"]:
+    #
+    #         if r["start1"] > r["start2"]:  # Swap sides
+    #             start1, end1 = r["start1"], r["end1"]
+    #             start2, end2 = r["start2"], r["end2"]
+    #             unodes = r["u_nodes"]
+    #             vnodes = r["v_nodes"]
+    #
+    #             dr["start1"] = start2
+    #             dr["end1"] = end2
+    #             dr["start2"] = start1
+    #             dr["end2"] = end1
+    #             dr["u_nodes"] = vnodes
+    #             dr["v_nodes"] = unodes
+    #
+    #         start1, end1 = dr["start1"], dr["end1"] + 150
+    #         start2, end2 = dr["start2"], dr["end2"] + 150
+    #
+    #         # Check if intervals overlap
+    #         if max(start1, start2) <= min(end1, end2):
+    #             low_start = min(start1, start2)
+    #             high_end = max(end1, end2)
+    #             mid = (high_end - low_start) / 2
+    #             start1 = low_start
+    #             end1 = low_start + mid
+    #             start2 = end1
+    #             end2 = high_end
+    #             dr["start1"] = start2
+    #             dr["end1"] = end2
+    #             dr["start2"] = start1
+    #             dr["end2"] = end1
+    #         res.append(dr)
+    #     else:
+    #         res.append(dr)
+    # df = pd.DataFrame.from_records(res)
 
     df = df.sort_values(["chr1", "start1", "chr2", "start2"])[['chr1','start1','end1','chr2','start2','end2','component','connectivity','n1_connectivity','n2_connectivity','n_nodes','u_nodes','v_nodes']]
     # Lenient filtering
-    predict = [True if (i < 0.04 and j > 3 and k > 3 and l < 4 and m < 4) else False for i, j, k, l, m in zip(df["connectivity"], df["u_nodes"], df["v_nodes"], df["n1_connectivity"], df["n2_connectivity"])]
+    ld = len(df)
+    predict = [True if (i < 0.04 and j > 0 and k > 0 and l < 4 and m < 4) else False for i, j, k, l, m in zip(df["connectivity"], df["u_nodes"], df["v_nodes"], df["n1_connectivity"], df["n2_connectivity"])]
 
-    df = df[predict]
-    df.to_csv(tmps3, sep="\t", index=None)
-    # return df
+    #df = df[predict]
+    ld2 = len(df)
+    echo(ld, ld2)
+
+    #df.to_csv(tmps3, sep="\t", index=None)
+    return df
 
 
-def get_region_depth(f, inputbam, temp_1, temp_2):
+def get_region_depth(df, inputbam, temp_1, temp_2):
 
-    df = pd.read_csv(f, sep="\t", index_col=None)
+    # df = pd.read_csv(f, sep="\t", index_col=None)
     intervals = []
     for c1, s1, e1, c2, s2, e2 in zip(df["chr1"], df["start1"], df["end1"], df["chr2"], df["start2"], df["end2"]):
         s1 = (int(s1) / 100) * 100
@@ -1029,10 +1015,7 @@ def get_region_depth(f, inputbam, temp_1, temp_2):
             k = [chrom] * len(starts)
             lines = ["\t".join(item) + "\n" for item in zip(k, starts, ends)]
             depthf.writelines(lines)
-
-    t0 = time.time()
     call("samtools bedcov {t1} {bam} > {t2}".format(bam=inputbam, t1=temp_1, t2=temp_2), shell=True)
-    click.echo("Region coverage: {}s".format(int(time.time() - t0)), err=True)
 
     depth_d = {}
     with open(temp_2, "r") as depth_i:
@@ -1042,7 +1025,7 @@ def get_region_depth(f, inputbam, temp_1, temp_2):
     return depth_d
 
 
-def filter_high_cov(region_windows, regions_depth, max_cov=150):
+def filter_high_cov(region_windows, regions_depth, tree, max_cov=150):  # Todo add max coverage option
 
     new = []
     removed = 0
@@ -1050,6 +1033,10 @@ def filter_high_cov(region_windows, regions_depth, max_cov=150):
 
         max_covs = []
         for chrom, s, e in region_pair:
+            # Check for intersection with --include bed
+            ol = data_io.intersecter(tree, chrom, s, e)
+            if ol:
+                continue
 
             # Round start and end to get dict key
             start = (int(s) / 100) * 100
@@ -1064,9 +1051,8 @@ def filter_high_cov(region_windows, regions_depth, max_cov=150):
     return new
 
 
-def get_regions_windows(args, unique_file_id, infile, max_dist):
-    t0 = time.time()
-    temps = ["{}/regionstemp{}.{}.csv".format(args["dest"], i, unique_file_id) for i in range(3)]
+def get_regions_windows(args, unique_file_id, infile, max_dist, tree):
+    temps = ["{}/regionstemp{}.{}.csv".format(args["dest"], i, unique_file_id) for i in range(2)]
 
     with open(temps[0], "w") as tempout:
         for u, v, sub_id, n_nodes, nu, nv in kd_cluster(args, infile, max_dist):
@@ -1076,46 +1062,51 @@ def get_regions_windows(args, unique_file_id, infile, max_dist):
         for u, v, sub_id, n_nodes, nu, nv in region_connectivity(tempin=temps[0]):
             tempout.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(*tuple(u + v + [sub_id, n_nodes, nu, nv])))
 
-    analyse_connectivity(temps[1], temps[2])
+    df = analyse_connectivity(temps[1])
 
     depth_temp_in = "{}/regionstempdin.{}.csv".format(args["dest"], unique_file_id)
     depth_temp_out = "{}/regionstempdout.{}.csv".format(args["dest"], unique_file_id)
-    regions_depth = get_region_depth(temps[2], args["sv_aligns"], depth_temp_in, depth_temp_out)
+    regions_depth = get_region_depth(df, args["sv_aligns"], depth_temp_in, depth_temp_out)
 
-    df = pd.read_csv(temps[2], sep="\t", index_col=None)
+    # df = pd.read_csv(temps[2], sep="\t", index_col=None)
 
     region_windows = zip(zip(df["chr1"], df["start1"], df["end1"]), zip(df["chr2"], df["start2"], df["end2"]))
 
-    region_windows = filter_high_cov(region_windows, regions_depth)
+    region_windows = filter_high_cov(region_windows, regions_depth, tree)
 
     # Remove temp files
     for f in temps + [depth_temp_in, depth_temp_out]:
         os.remove(f)
-    click.echo("Regions prepared in {} h:m:s".format(str(datetime.timedelta(seconds=int(time.time() - t0)))),
-               err=True)
+
     return region_windows
 
 
 def worker(argument_set):
     args, infile_params, max_dist, region_pair = argument_set
     infile = pysam.AlignmentFile(*infile_params)
-    G, read_buffer = construct_graph(args, infile, max_dist, input_windows=region_pair)
+    G, read_buffer = construct_graph(infile, max_dist, input_windows=region_pair)
 
     potential_events = []
     for grp in nx.connected_component_subgraphs(G):  # Get large components, possibly multiple events
 
-        reads = get_reads(infile, grp, max_dist, int(args['read_length']), read_buffer)
+        if any([i[1]["s"] == 1 for i in grp.nodes(data=True)]):  # Make sure at least one read-pair spans windows
+            # echo(grp.nodes())
+            reads = get_reads(infile, grp, max_dist, int(args['read_length']), read_buffer)
+            # for r in reads:
+            #     echo(r)
+            # echo("--")
+            bm = make_block_model(grp, args["insert_median"], args["insert_stdev"], args["read_length"])
+            # for edge in bm.edges():
+            #     echo(edge)
+            if len(bm.nodes()) == 0:
 
-        bm = make_block_model(grp, args["insert_median"], args["insert_stdev"], args["read_length"])
+                continue
+            bm = block_model_evidence(bm, grp)  # Annotate block model with evidence
 
-        if len(bm.nodes()) == 0:
-            continue
-        bm = block_model_evidence(bm, grp)  # Annotate block model with evidence
-
-        for event in caller.call_from_block_model(bm, grp, reads, infile, args["clip_length"],
-                                                  args["insert_median"], args["insert_stdev"]):
-            if event:
-                potential_events.append(event)
+            for event in caller.call_from_block_model(bm, grp, reads, infile, args["clip_length"],
+                                                      args["insert_median"], args["insert_stdev"]):
+                if event:
+                    potential_events.append(event)
 
     return potential_events
 
@@ -1138,7 +1129,7 @@ def cluster_reads(args):
     kind = args["sv_aligns"].split(".")[-1]
     opts = {"bam": "rb", "cram": "rc", "sam": "rs"}
 
-    click.echo("Input file is {}, (.{} format)".format(args["sv_aligns"], kind), err=True)
+    click.echo("Input file is {}, (.{} format). {} processes".format(args["sv_aligns"], kind, args["procs"]), err=True)
     infile = pysam.AlignmentFile(args["sv_aligns"], opts[kind])
     infile_params = (args["sv_aligns"], opts[kind])
 
@@ -1153,13 +1144,9 @@ def cluster_reads(args):
         outfile = open(args["svs_out"], "w")
 
     unique_file_id = str(uuid.uuid4())
-    click.echo("Tempfile name {}".format(unique_file_id), err=True)
-
-    region_windows = get_regions_windows(args, unique_file_id, infile, max_dist)
 
     regions = data_io.overlap_regions(args["include"])
-
-    click.echo("Calling SVs with processors={}...".format(args["procs"]), err=True)
+    region_windows = get_regions_windows(args, unique_file_id, infile, max_dist, regions)
 
     args2 = {k: v for k, v in args.items() if check_pkl(v)}  # Picklable args
 
@@ -1174,7 +1161,8 @@ def cluster_reads(args):
         reg_counter = 0
         c = 0
         for region_pair in region_windows:
-
+            tg = (('chr17',114496,114760),('chr1',52997189,52997469))
+            # if region_pair == tg:
             jobs.append((args2, infile_params, max_dist, region_pair))
 
             if len(jobs) == 20 or reg_counter == len(region_windows) - 1:  # Todo add chunk size parameter
@@ -1188,22 +1176,37 @@ def cluster_reads(args):
                 else:
                     result = map(worker, jobs)
 
-                for potential_events in result:
-                    if potential_events:
-                        if potential_events:
-                            # Keep one best event per region-pair (default mode)
-                            best = sorted(potential_events, key=lambda x: sum([x["pe"], x["sup"]]))[-1]
+                for ji, j in enumerate(jobs):
 
+                    if j[-1] == tg:
+                        echo("YO")
+                        res = result[ji]
+                        echo("res", res)
+                        for d in res:
+                            echo(d)
+                            echo(d["chrA"], d["posA"], d["chrB"], d["posB"])
+
+                for potential_events in result:
+
+                    if potential_events:
+                        # Keep one best event per region-pair (default mode)
+                        best = sorted(potential_events, key=lambda x: sum([x["pe"], x["sup"]]), reverse=True)
+                        for b in best:
+                            # try:
+                            #     echo("best", b["chrA"], b["posA"], b["chrB"], b["posB"], sum([b["pe"], b["sup"]]))
+                            # except:
+                            #     echo("FAILED", b)
                             # Collect coverage information
-                            event_string = caller.get_raw_cov_information(best, infile, regions)
+                            event_string = caller.get_raw_cov_information(b, infile, regions)
                             if event_string:
                                 outfile.write(event_string)
                                 c += 1
+                            break
                 jobs = []
 
             reg_counter += 1
 
         assert len(jobs) == 0
 
-        click.echo("{} SV called in {} h:m:s".format(c, str(datetime.timedelta(seconds=int(time.time() - t0)))),
-                   err=True)
+    click.echo("call-events complete, n={}, {} h:m:s".format(c, str(datetime.timedelta(seconds=int(time.time() - t0)))),
+               err=True)

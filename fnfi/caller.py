@@ -21,6 +21,7 @@ def get_tuple(j):
 def guess_break_point(read, bam, insert_size, insert_stdev):
 
     # If the read is non-discordant and no clip is present, skip
+
     if read.flag & 2 and not any(i[0] == 4 or i[0] == 5 for i in read.cigartuples):
         return []
 
@@ -64,7 +65,13 @@ def process_node_set(node_set, all_reads, bam, insert_size, insert_stdev):
 def pre_process_breakpoints(break_points_dict):
 
     # If number chroms > 2, reduce
-    chroms = Counter([i[2] for i in break_points_dict.values()])
+    vals = break_points_dict.values()
+    if not vals:
+        return {}
+    chroms = Counter([i[2] for i in vals if len(i) > 0])
+    if len(chroms) == 0:
+        return {}
+
     if len(chroms) > 2:
         c = [i[0] for i in sorted(chroms.items(), key=lambda x: x[1], reverse=True)][:2]
         chroms = {k: v for k, v in chroms.items() if k in c}
@@ -331,6 +338,10 @@ def single(bm, reads, bam, insert_size, insert_stdev):
         return
 
     break_points = pre_process_breakpoints(break_points)
+
+    if not break_points:
+        return None
+
     dict_a, dict_b = separate_mixed(break_points)
     info, contrib_reads = call_break_points(dict_a.values(), dict_b.values())
 
@@ -362,11 +373,15 @@ def one_edge(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev)
         tuple_a = breaks_from_one_side(ns[0], reads, bam, insert_size, insert_stdev)
     else:
         tuple_a = get_tuple(as1)  # Tuple of breakpoint information
+    if not tuple_a:
+        return None
 
     if as2 is None or len(as2) == 0:
         tuple_b = breaks_from_one_side(ns[1], reads, bam, insert_size, insert_stdev)
     else:
         tuple_b = get_tuple(as2)
+    if not tuple_b:
+        return None
 
     if as1 is not None and len(as1) > 0 and as2 is not None and len(as2) > 0:
         as1, as2 = assembler.link_pair_of_assemblies(as1, as2, clip_length)
