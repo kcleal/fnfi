@@ -19,6 +19,9 @@ def process_template(read_template):
         data_io.to_output(read_template)
         return
 
+    if read_template["name"] == "simulated_reads.0.2-id247_A_chr21:46697736_B_chr1:12796395-6843":
+        click.echo(read_template, err=True)
+
     res = pairing.process(read_template)
 
     if res:

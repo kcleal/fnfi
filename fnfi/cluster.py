@@ -459,7 +459,7 @@ def block_model_evidence(bm, parent_graph):
         for neighbor_set in bm[node_set]:
             read_names_b = set([i[0] for i in neighbor_set])
 
-            total_reads = len(node_set) + len(neighbor_set)
+            # total_reads = len(node_set) + len(neighbor_set)
             pe_support = len(read_names_a.intersection(read_names_b))
 
             # Reads connected with black edges give soft-clip support at each side
@@ -468,11 +468,10 @@ def block_model_evidence(bm, parent_graph):
             black_nodes = len(set(item for sublist in black_connected for item in sublist))
             supplementary = len([i[1] for i in sub.nodes() if i[1] & 2048])
 
-            res = {"total_reads": total_reads,
+            res = {# "total_reads": total_reads,
                    "pe": pe_support,
-                   "sc": black_nodes,
-                   "sup": supplementary}
-
+                   "sc": black_nodes,  # Todo this is overlapping soft-clips not number of soft-clips
+                   "supp": supplementary}
             bm[node_set][neighbor_set]["result"] = res
             seen.add(neighbor_set)
     return bm
@@ -985,24 +984,25 @@ def analyse_connectivity(f):
 
     df = df.sort_values(["chr1", "start1", "chr2", "start2"])[['chr1','start1','end1','chr2','start2','end2','component','connectivity','n1_connectivity','n2_connectivity','n_nodes','u_nodes','v_nodes']]
     # Lenient filtering
-    ld = len(df)
-    predict = [True if (i < 0.04 and j > 0 and k > 0 and l < 4 and m < 4) else False for i, j, k, l, m in zip(df["connectivity"], df["u_nodes"], df["v_nodes"], df["n1_connectivity"], df["n2_connectivity"])]
-
+    # ld = len(df)
+    # predict = [True if (i < 0.04 and j > 0 and k > 0 and l < 4 and m < 4) else False for i, j, k, l, m in zip(df["connectivity"], df["u_nodes"], df["v_nodes"], df["n1_connectivity"], df["n2_connectivity"])]
     #df = df[predict]
-    ld2 = len(df)
-    echo(ld, ld2)
+    # ld2 = len(df)
 
     #df.to_csv(tmps3, sep="\t", index=None)
     return df
 
 
-def get_region_depth(df, inputbam, temp_1, temp_2):
+def get_region_depth(df, inputbam, temp_1, temp_2, pad=10000):
 
-    # df = pd.read_csv(f, sep="\t", index_col=None)
     intervals = []
-    for c1, s1, e1, c2, s2, e2 in zip(df["chr1"], df["start1"], df["end1"], df["chr2"], df["start2"], df["end2"]):
+    for c1, s1, e1, c2, s2, e2 in zip(df["chr1"], df["start1"] - pad, df["end1"] + pad, df["chr2"], df["start2"] - pad, df["end2"] + pad):
         s1 = (int(s1) / 100) * 100
+        if s1 < 0:
+            s1 = 0
         s2 = (int(s2) / 100) * 100
+        if s2 < 0:
+            s2 = 0
         e1 = ((int(e1) / 100) * 100) + 100
         e2 = ((int(e2) / 100) * 100) + 100
         intervals += [[c1, s1, e1], [c2, s2, e2]]
@@ -1025,30 +1025,27 @@ def get_region_depth(df, inputbam, temp_1, temp_2):
     return depth_d
 
 
-def filter_high_cov(region_windows, regions_depth, tree, max_cov=150):  # Todo add max coverage option
+def filter_high_cov(df, regions_depth, tree, max_cov=150):  # Todo add max coverage option
 
     new = []
     removed = 0
-    for region_pair in region_windows:
-
+    region_windows = zip(zip(df["chr1"], df["start1"], df["end1"]), zip(df["chr2"], df["start2"], df["end2"]))
+    for idx, region_pair in enumerate(region_windows):
         max_covs = []
         for chrom, s, e in region_pair:
             # Check for intersection with --include bed
             ol = data_io.intersecter(tree, chrom, s, e)
             if ol:
                 continue
-
-            # Round start and end to get dict key
-            start = (int(s) / 100) * 100
-            end = ((int(e) / 100) * 100) + 100
-            max_covs.append(max([regions_depth[(chrom, i)] for i in range(start, end, 100)]))
+            max_covs.append(max(caller.calculate_coverage(chrom, s, e, regions_depth)))
 
         if any([i > max_cov for i in max_covs]):
             removed += 1
             continue
-        new.append(region_pair)
+        new.append(idx)
+
     click.echo("Dropped {} high coverage regions. Kept {}".format(removed, len(new)), err=True)
-    return new
+    return df.iloc[new]
 
 
 def get_regions_windows(args, unique_file_id, infile, max_dist, tree):
@@ -1066,40 +1063,31 @@ def get_regions_windows(args, unique_file_id, infile, max_dist, tree):
 
     depth_temp_in = "{}/regionstempdin.{}.csv".format(args["dest"], unique_file_id)
     depth_temp_out = "{}/regionstempdout.{}.csv".format(args["dest"], unique_file_id)
-    regions_depth = get_region_depth(df, args["sv_aligns"], depth_temp_in, depth_temp_out)
+    regions_depth = get_region_depth(df, args["sv_aligns"], depth_temp_in, depth_temp_out, pad=10000)
 
-    # df = pd.read_csv(temps[2], sep="\t", index_col=None)
-
-    region_windows = zip(zip(df["chr1"], df["start1"], df["end1"]), zip(df["chr2"], df["start2"], df["end2"]))
-
-    region_windows = filter_high_cov(region_windows, regions_depth, tree)
+    df = filter_high_cov(df, regions_depth, tree)
 
     # Remove temp files
     for f in temps + [depth_temp_in, depth_temp_out]:
         os.remove(f)
 
-    return region_windows
+    return df, regions_depth
 
 
 def worker(argument_set):
-    args, infile_params, max_dist, region_pair = argument_set
+    args, infile_params, max_dist, d = argument_set
     infile = pysam.AlignmentFile(*infile_params)
+
+    region_pair = ((d["chr1"], d["start1"], d["end1"]), (d["chr2"], d["start2"], d["end2"]))
     G, read_buffer = construct_graph(infile, max_dist, input_windows=region_pair)
 
     potential_events = []
     for grp in nx.connected_component_subgraphs(G):  # Get large components, possibly multiple events
 
         if any([i[1]["s"] == 1 for i in grp.nodes(data=True)]):  # Make sure at least one read-pair spans windows
-            # echo(grp.nodes())
             reads = get_reads(infile, grp, max_dist, int(args['read_length']), read_buffer)
-            # for r in reads:
-            #     echo(r)
-            # echo("--")
             bm = make_block_model(grp, args["insert_median"], args["insert_stdev"], args["read_length"])
-            # for edge in bm.edges():
-            #     echo(edge)
             if len(bm.nodes()) == 0:
-
                 continue
             bm = block_model_evidence(bm, grp)  # Annotate block model with evidence
 
@@ -1108,14 +1096,14 @@ def worker(argument_set):
                 if event:
                     potential_events.append(event)
 
-    return potential_events
+    return potential_events, d
 
 
 def check_pkl(val):
     try:
         pickle.dumps(val)
         return True
-    except:
+    except pickle.PicklingError or pickle.PickleError:
         return False
 
 
@@ -1146,26 +1134,29 @@ def cluster_reads(args):
     unique_file_id = str(uuid.uuid4())
 
     regions = data_io.overlap_regions(args["include"])
-    region_windows = get_regions_windows(args, unique_file_id, infile, max_dist, regions)
+    connectivity_df, regions_depth = get_regions_windows(args, unique_file_id, infile, max_dist, regions)
+    keys = {'exclude', 'read_length', 'max_insertion', 'clip_length', 'insert_stdev', 'sv_aligns', 'include', 'insert_median', 'procs', 'search', 'match_score', 'paired', 'u'}
 
-    args2 = {k: v for k, v in args.items() if check_pkl(v)}  # Picklable args
+    args2 = {k: v for k, v in args.items() if k in keys}  # Picklable args
 
     with outfile:
-        head = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "total_reads", "cipos95A", "cipos95B",
-         "DP", "DApri", "DN", "NMpri", "SP", "EVsup", "DAsup",
-         "NMsup", "maxASsup", "contig", "pe", "sup", "sc", "block_edge", "MAPQpri", "MAPQsup", "raw_reads_10kb", "kind"]
+        head = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "cipos95A", "cipos95B",
+         "DP", "DApri", "DN", "NMpri", "SP", "DAsup",
+         "NMsup", "maxASsup", "contig", "pe", "supp", "sc", "block_edge", "MAPQpri", "MAPQsup", "raw_reads_10kb",
+                "kind", "connectivity"]  # Todo add strandadness
 
         outfile.write("\t".join(head) + "\n")
 
         jobs = []
         reg_counter = 0
         c = 0
-        for region_pair in region_windows:
-            tg = (('chr17',114496,114760),('chr1',52997189,52997469))
+        for index, region_info in connectivity_df.iterrows():
+            # tg = (('chr17',114496,114760),('chr1',52997189,52997469))
             # if region_pair == tg:
-            jobs.append((args2, infile_params, max_dist, region_pair))
 
-            if len(jobs) == 20 or reg_counter == len(region_windows) - 1:  # Todo add chunk size parameter
+            jobs.append((args2, infile_params, max_dist, dict(region_info)))
+
+            if len(jobs) >= 100 or reg_counter == len(connectivity_df) - 1:  # Todo add chunk size parameter
                 # Process jobs
                 if args["procs"] > 1:
                     pool = multiprocessing.Pool(args["procs"])
@@ -1176,36 +1167,30 @@ def cluster_reads(args):
                 else:
                     result = map(worker, jobs)
 
-                for ji, j in enumerate(jobs):
+                # for ji, j in enumerate(jobs):
 
-                    if j[-1] == tg:
-                        echo("YO")
-                        res = result[ji]
-                        echo("res", res)
-                        for d in res:
-                            echo(d)
-                            echo(d["chrA"], d["posA"], d["chrB"], d["posB"])
+                    # if j[-1] == tg:
+                    #     echo("YO")
+                    #     res = result[ji]
+                    #     echo("res", res)
+                    #     for d in res:
+                    #         echo(d)
+                    #         echo(d["chrA"], d["posA"], d["chrB"], d["posB"])
 
-                for potential_events in result:
+                for potential_events, region_info in result:
 
                     if potential_events:
                         # Keep one best event per region-pair (default mode)
-                        best = sorted(potential_events, key=lambda x: sum([x["pe"], x["sup"]]), reverse=True)
+                        best = sorted(potential_events, key=lambda x: sum([x["pe"], x["supp"]]), reverse=True)
                         for b in best:
-                            # try:
-                            #     echo("best", b["chrA"], b["posA"], b["chrB"], b["posB"], sum([b["pe"], b["sup"]]))
-                            # except:
-                            #     echo("FAILED", b)
                             # Collect coverage information
-                            event_string = caller.get_raw_cov_information(b, infile, regions)
+                            event_string = caller.get_raw_cov_information(b, regions, region_info, regions_depth)
                             if event_string:
                                 outfile.write(event_string)
                                 c += 1
-                            break
+                            break  # Note only write best event, possibly add option here
                 jobs = []
-
             reg_counter += 1
-
         assert len(jobs) == 0
 
     click.echo("call-events complete, n={}, {} h:m:s".format(c, str(datetime.timedelta(seconds=int(time.time() - t0)))),

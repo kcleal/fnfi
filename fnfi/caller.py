@@ -260,57 +260,45 @@ def count_soft_clip_stacks(reads):
 
 
 def score_reads(read_names, all_reads):
-
+    # Todo other scores need adding, DAsup, NMsup. Bug in MAPQsup? sometimes events with supp have no MAPQsup
     if len(read_names) == 0:
         return {}
 
-    collected = []
-    data = defaultdict(list)
+    # collected = []
+    data = {k: [] for k in ('DP', 'DApri', 'DN', 'NMpri', 'SP', 'DAsupp', 'NMsupp', 'maxASsupp', 'MAPQpri', 'MAPQsupp')}
+
     for name, flag, pos in read_names:
-        # for flag in all_reads[name]:  # Could score all alignments from a read-template?
+
         read = all_reads[name][(flag, pos)]
-        collected.append(read)
+        # collected.append(read)
         if not read.flag & 2048:
             idf = "pri"
-            _ = data["SP"]
-            if read.has_tag("SP") and int(read.has_tag("SP")) == 1:
-                data["SP"].append(1)
-            data["MAPQpri"].append(read.mapq)
-        else:
-            idf = "sup"
-            _ = data["EVsup"]
-            if read.has_tag("EV"):
-                data["EVsup"].append(read.get_tag("EV"))
-            _ = data["maxASsup"]
-            if read.has_tag("AS"):
-                data["maxASsup"].append(read.get_tag("AS"))
-            data["MAPQsup"].append(read.mapq)
-
-        for item in ["DA", "NM"]:
-            _ = data[item]  # Make sure item exists in default dict, otherwise problems arise with header
-            if read.has_tag(item):
-                data[item + idf].append(float(read.get_tag(item)))
-            else:
-                echo("Missing tag {}".format(item))
-        if idf == "pri":
             for item in ["DP", "DN"]:
-                _ = data[item]  # Make sure item exists in default dict, otherwise problems arise with header
                 if read.has_tag(item):
                     data[item].append(float(read.get_tag(item)))
-                else:
-                    echo("Missing tag {}".format(item))
+            data["MAPQpri"].append(read.mapq)
+            if read.has_tag("SP") and str(read.get_tag("SP")) == '1':
+                data["SP"].append(1)
+        else:
+            idf = "supp"
+            if read.has_tag("AS"):
+                data["maxASsupp"].append(read.get_tag("AS"))
+            data["MAPQsupp"].append(read.mapq)
+
+        for gk in ["DA", "MAPQ", "NM"]:
+            key = gk + idf
+            if read.has_tag(gk):
+                data[key].append(float(read.get_tag(gk)))
 
     averaged = {}
     for k, v in data.items():
-        if k == "EVsup":
-            if len(v) > 0:
-                averaged[k] = min(v)
-            else:
-                averaged[k] = None
-        elif k == "SP":
+        if k == "SP":
             averaged[k] = len(v)
-        elif k == "maxASsup":
-            averaged[k] = max(v)
+        elif k == "maxASsupp":
+            if len(v) > 0:
+                averaged[k] = max(v)
+            else:
+                averaged[k] = 0
         elif len(v) > 0:
             averaged[k] = sum(v) / float(len(v))
         else:
@@ -349,7 +337,7 @@ def single(bm, reads, bam, insert_size, insert_stdev):
     both = list(dict_a.keys()) + list(dict_b.keys())
 
     info['pe'] = len([1 for k, v in Counter([i[0] for i in both]).items() if v > 1])
-    info['sup'] = len([1 for i in both if i[1] & 2048])
+    info['supp'] = len([1 for i in both if i[1] & 2048])
     info['sc'] = len([1 for name, flag, pos in both if "S" in reads[name][(flag, pos)].cigarstring])
     info["block_edge"] = 0
 
@@ -474,14 +462,24 @@ def call_from_block_model(bm_graph, parent_graph, reads, bam, clip_length, inser
 
 def call_to_string(call_info):
     # Tab delimited string, in a bedpe style
-    k = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "total_reads", "cipos95A", "cipos95B",
-         "DP", "DApri", "DN", "NMpri", "SP", "EVsup", "DAsup",
-         "NMsup", "maxASsup", "contig", "pe", "supp", "sc", "block_edge", "MAPQpri", "MAPQsup", "raw_reads_10kb", "kind"]
+    k = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "cipos95A", "cipos95B",
+         "DP", "DApri", "DN", "NMpri", "SP", "DAsupp",
+         "NMsupp", "maxASsupp", "contig", "pe", "supp", "sc", "block_edge", "MAPQpri", "MAPQsupp", "raw_reads_10kb",
+         "kind", "connectivity"]
 
     return "\t".join([str(call_info[ky]) if ky in call_info else str(None) for ky in k]) + "\n"
 
 
-def get_raw_cov_information(r, raw_bam, regions):
+def calculate_coverage(chrom, start, end, region_depths):
+    # Round start and end to get dict key
+    start = (int(start) / 100) * 100
+    if start < 0:
+        start = 0
+    end = ((int(end) / 100) * 100) + 100
+    return [region_depths[(chrom, i)] for i in range(start, end, 100) if (chrom, i) in region_depths]
+
+
+def get_raw_cov_information(r, regions, window_info, regions_depth):
 
     # Check if side A in regions
     ar = False
@@ -521,16 +519,22 @@ def get_raw_cov_information(r, raw_bam, regions):
         else:
             kind = "inter-regional"
 
-    reads_10kb = None
+    reads_10kb = 0
     if kind == "hemi-regional":
 
         # Get read coverage in raw bam file +/- 10kb around A-side
-        start = r["posA"] - 10000
-        reads_10kb = len(list(raw_bam.fetch(r["chrA"], 0 if start < 0 else start, r["posA"] + 10000)))
-
+        # echo(r["chrA"], r["posA"] - 10000, r["posA"] + 10000)
+        # import time
+        # t0 = time.time()
+        reads_10kb = sum(calculate_coverage(r["chrA"], r["posA"] - 10000, r["posA"] + 10000, regions_depth))
+        # echo(reads_10kb, time.time() - t0)
+        # start = r["posA"] - 10000
+        # t0 = time.time()
+        # reads_10kb = len(list(raw_bam.fetch(r["chrA"], 0 if start < 0 else start, r["posA"] + 10000)))
+        # echo("2", reads_10kb, time.time() - t0)
     r["kind"] = kind
     r["raw_reads_10kb"] = reads_10kb
-
+    r["connectivity"] = window_info["connectivity"]
     return call_to_string(r)
 
 

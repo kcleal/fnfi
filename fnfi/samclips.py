@@ -5,6 +5,7 @@ Utils to generate proper sam output and flag information
 import re
 import click
 from c_io_funcs import reverse_complement as rev_comp
+from c_io_funcs import get_start_end
 from c_samflags import set_bit
 
 
@@ -12,28 +13,73 @@ def echo(*arg):
     click.echo(arg, err=True)
 
 
-# def add_softclips(s, fq, readid):
-#     fq_seq = fq[readid][0].upper()
-#     fq_qual = fq[readid][1]
-#     if s.flag & 16:
-#         fq_seq = rev_comp(fq_seq, len(fq_seq)
-#         fq_qual = fq_qual[::-1]
-#     s.seq = fq_seq
-#     s.qual = fq_qual
+def set_tlen(out):
 
-def set_tlen(p1, p2, alen, blen):
-    if p1 < p2:
-        tl = p2 + blen - p1
-        atl = str(tl)
-        btl = str(-1 * tl)
+    pri_1 = out[0][1]
+    pri_2 = out[1][1]
+
+    p1_pos = int(pri_1[2])
+    p2_pos = int(pri_2[2])
+
+    flg1 = pri_1[0]
+    flg2 = pri_2[0]
+
+    # Use the end position of the alignment if read is on the reverse strand, or start if on the forward
+    if flg1 & 16:
+        aln_start1, aln_end1 = get_start_end(pri_1[4])
+        t1 = p1_pos + aln_end1
     else:
-        tl = p2 - p1 - alen
-        atl = str(tl)
-        btl = str(-1 * tl)
-    return atl, btl
+        t1 = p1_pos
+
+    if flg2 & 16:
+        aln_start2, aln_end2 = get_start_end(pri_2[4])
+        t2 = p2_pos + aln_end2
+    else:
+        t2 = p2_pos
+
+    if t1 <= t2:
+        tlen1 = t2 - t1  # Positive
+        tlen2 = t1 - t2  # Negative
+    else:
+        tlen1 = t2 - t1  # Negative
+        tlen2 = t1 - t2  # Positive
+
+    pri_1[7] = str(tlen1)
+    pri_2[7] = str(tlen2)
+
+    out2 = [(out[0][0], pri_1, out[0][2]), (out[1][0], pri_2, out[1][2])]
+
+    # Set tlen's of supplementary
+    for sup_tuple in out[2:]:
+        sup_tuple = list(sup_tuple)
+        sup_flg = sup_tuple[1][0]
+        sup_chrom = sup_tuple[1][1]
+        sup_pos = int(sup_tuple[1][2])
+
+        sup_start, sup_end = get_start_end(sup_tuple[1][4])
+        if sup_flg & 64:  # First in pair, mate is second
+            other_end = t2
+            other_chrom = pri_2[1]
+        else:
+            other_end = t1
+            other_chrom = pri_1[1]
+
+        if sup_flg & 16:  # If reverse strand, count to end
+            sup_pos += sup_end
+
+        # Make sure they are both on same chromosome
+        if sup_chrom == other_chrom:
+            if sup_pos < other_end:
+                tlen = other_end - sup_pos
+            else:
+                tlen = sup_pos - other_end
+            sup_tuple[1][7] = str(tlen)
+        out2.append(tuple(sup_tuple))
+
+    return out2
 
 
-def set_mate_flag(a, b, r1_len, r2_len, max_d, read1_rev, read2_rev):
+def set_mate_flag(a, b, max_d, read1_rev, read2_rev):
 
     if not a or not b:  # No alignment, mate unmapped?
         return False, False
@@ -119,18 +165,6 @@ def set_mate_flag(a, b, r1_len, r2_len, max_d, read1_rev, read2_rev):
         if arname == brname:
             # Set TLEN
             p1, p2 = int(apos), int(bpos)
-            atl, btl = set_tlen(p1, p2, r1_len, r2_len)
-            a[7] = atl
-            b[7] = btl
-            # p1, p2 = int(apos), int(bpos)
-            # if p1 < p2:
-            #     tl = p2 + r2_len - p1
-            #     a[7] = str(tl)
-            #     b[7] = str(-1 * tl)
-            # else:
-            #     tl = p2 - p1 - r1_len
-            #     a[7] = str(tl)
-            #     b[7] = str(-1 * tl)
 
             # Set proper-pair flag
             if (aflag & 16 and not bflag & 16) or (not aflag & 16 and bflag & 16):  # Not on same strand
@@ -204,9 +238,6 @@ def set_supp_flags(sup, pri, ori_primary_reversed, primary_will_be_reversed):
 
     sup[5] = pri[1]
     sup[6] = pri[2]
-
-    #sup[6] = pri[6]  # Rnext and Pnext
-    #sup[7] = pri[7]
 
     return rev_sup
 
@@ -419,15 +450,14 @@ def fixsam(template):
             else:
                 primary2 = l
         else:
-            out.append(['sup', l, False])  # Supplementary
+            out.append(['sup', l, False])  # Supplementary, False to decide if rev comp
 
     if primary1 is 0 or primary2 is 0 and template["paired_end"]:
         return []  # Todo deal with unmapped read or unpaired
 
     if paired and template["paired_end"]:
 
-        rev_A, rev_B = set_mate_flag(primary1, primary2, r1l, r2l, max_d,
-                                     template["read1_reverse"], template["read2_reverse"])
+        rev_A, rev_B = set_mate_flag(primary1, primary2, max_d, template["read1_reverse"], template["read2_reverse"])
 
         # Check if supplementary needs reverse complementing
         for i in range(len(out)):
@@ -441,13 +471,15 @@ def fixsam(template):
 
     if template["paired_end"]:
         out = [('pri', primary1, rev_A), ('pri', primary2, rev_B)] + out
+        out = set_tlen(out)
+
     else:
         out = [('pri', primary1, rev_A)] + out
 
     # Add read seq info back in if necessary, before reverse complementing. Check for hard clips and clip as necessary
     for a_type, aln, reverse_me in out:
 
-        if aln:
+        if aln:  # None here means no alignment for primary2
 
             if len(aln[8]) <= 1 or "H" in aln[4]:  # Sequence is set as "*", needs adding back in, or hard-clipped
                 add_sequence_back(aln, reverse_me, template)
@@ -457,12 +489,6 @@ def fixsam(template):
 
             # Turn off not primary here
             aln[0] = set_bit(aln[0], 8, 0)
-
-            # Convert flag back to string
-            #aln[0] = str(aln[0])
-        else:
-            # None here means no alignment for primary2
-            pass
 
     out = replace_sa_tags(out)
 
