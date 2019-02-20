@@ -57,6 +57,16 @@ def get_start_end(str cigar):
     return start, end
 
 
+def get_align_end_offset(str cigar):
+    c = re.split(r'(\d+)', cigar)[1:]  # Drop leading empty string
+    cdef int end = 0
+    cdef int i
+    for i in range(0, len(c)-1, 2):
+        if c[i+1] not in "DHS":  # Don't count deletions, or soft/hard clips at right-hand side
+            end += int(c[i])
+    return end
+
+
 def check_for_good_pairing(r1, r2, name, max_d):
     # Check to see if this pair of alignments needs pairing
     cdef int aflag = int(r1[0])

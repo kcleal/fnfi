@@ -15,12 +15,12 @@ import c_io_funcs
 def process_template(read_template):
     paired = c_io_funcs.sam_to_array(read_template)
 
+    # if read_template["name"] == "HWI-D00360:8:H88U0ADXX:2:1212:17210:75969":
+    #     click.echo(read_template, err=True)
+
     if paired:
         data_io.to_output(read_template)
         return
-
-    if read_template["name"] == "simulated_reads.0.2-id247_A_chr21:46697736_B_chr1:12796395-6843":
-        click.echo(read_template, err=True)
 
     res = pairing.process(read_template)
 
@@ -153,5 +153,5 @@ def process_reads(args):
     if args["output"] != "-" or args["output"] is not None:
         outsam.close()
 
-    click.echo("fnfi aln completed in {} h:m:s".format(str(datetime.timedelta(seconds=int(time.time() - t0)))),
+    click.echo("fnfi align completed in {} h:m:s".format(str(datetime.timedelta(seconds=int(time.time() - t0)))),
                err=True)

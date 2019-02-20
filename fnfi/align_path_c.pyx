@@ -186,7 +186,7 @@ def optimal_path(
                         ins = fabs(micro_h)
                         micro_h = 0
 
-                # Define jump cost
+                # Define jump cos
                 proper_pair = 0
                 if chr1 == chr2:
                     if r1 == r2:  # If the jump occurs on the same read, means there is an SV

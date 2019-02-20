@@ -4,13 +4,6 @@
 {
     "distutils": {
         "depends": [], 
-        "extra_compile_args": [
-            "-std=c++11", 
-            "-mmacosx-version-min=10.9"
-        ], 
-        "extra_link_args": [
-            "-std=c++11"
-        ], 
         "language": "c++", 
         "library_dirs": [
             "/Users/kezcleal/anaconda2/lib/python2.7/site-packages/numpy/core/include"
@@ -3685,7 +3678,7 @@ static PyObject *__pyx_pf_4fnfi_12align_path_c_optimal_path(CYTHON_UNUSED PyObje
  *                         ins = fabs(micro_h)
  *                         micro_h = 0             # <<<<<<<<<<<<<<
  * 
- *                 # Define jump cost
+ *                 # Define jump cos
  */
             __pyx_v_micro_h = 0.0;
 
@@ -3709,7 +3702,7 @@ static PyObject *__pyx_pf_4fnfi_12align_path_c_optimal_path(CYTHON_UNUSED PyObje
 
         /* "fnfi/align_path_c.pyx":190
  * 
- *                 # Define jump cost
+ *                 # Define jump cos
  *                 proper_pair = 0             # <<<<<<<<<<<<<<
  *                 if chr1 == chr2:
  *                     if r1 == r2:  # If the jump occurs on the same read, means there is an SV
@@ -3717,7 +3710,7 @@ static PyObject *__pyx_pf_4fnfi_12align_path_c_optimal_path(CYTHON_UNUSED PyObje
         __pyx_v_proper_pair = 0;
 
         /* "fnfi/align_path_c.pyx":191
- *                 # Define jump cost
+ *                 # Define jump cos
  *                 proper_pair = 0
  *                 if chr1 == chr2:             # <<<<<<<<<<<<<<
  *                     if r1 == r2:  # If the jump occurs on the same read, means there is an SV
@@ -3840,7 +3833,7 @@ static PyObject *__pyx_pf_4fnfi_12align_path_c_optimal_path(CYTHON_UNUSED PyObje
           __pyx_L19:;
 
           /* "fnfi/align_path_c.pyx":191
- *                 # Define jump cost
+ *                 # Define jump cos
  *                 proper_pair = 0
  *                 if chr1 == chr2:             # <<<<<<<<<<<<<<
  *                     if r1 == r2:  # If the jump occurs on the same read, means there is an SV
