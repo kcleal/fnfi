@@ -117,8 +117,8 @@ def sam_to_array(template):
             template["outstr"] = pair_str
             return 1
 
-    # [chrom, pos, query_start, query_end, aln_score, row_index, strand, read, num_mis-matches]
-    cdef np.ndarray[np.float_t, ndim=2] arr = np.zeros((len(data), 9))  # , dtype=np.float
+    # [chrom, pos, query_start, query_end, aln_score, row_index, strand, read, num_mis-matches, original_aln_score]
+    cdef np.ndarray[np.float_t, ndim=2] arr = np.zeros((len(data), 10))  # , dtype=np.float
 
     chrom_ids = {}
 
@@ -168,6 +168,7 @@ def sam_to_array(template):
             if k == "NM":
                 arr[idx, 8] = float(v)
             elif k == "AS":
+                arr[idx, 9] = float(v)  # Keep copy of original alignment score
                 if overlaps[idx]:
                     arr[idx, 4] = float(v) * bias
                 else:
@@ -274,11 +275,11 @@ def choose_supplementary(template):
 
     for j in range(len(actual_rows)):
         i = actual_rows[j]
-        if d[i, 7] == 1 and d[i, 4] > read1_max:
-            read1_max = d[i, 4]
+        if d[i, 7] == 1 and d[i, 9] > read1_max:  # Use original alignment score, not biased
+            read1_max = d[i, 9]
             read1_alns += 1
-        elif d[i, 7] == 2 and d[i, 4] > read2_max:
-            read2_max = d[i, 4]
+        elif d[i, 7] == 2 and d[i, 9] > read2_max:
+            read2_max = d[i, 9]
             read2_alns += 1
 
     template["splitters"] = [read1_alns > 1, read2_alns > 1]
@@ -287,7 +288,7 @@ def choose_supplementary(template):
     ids_to_name = {v: k for k, v in template["chrom_ids"].items()}
 
     locs = []
-    cdef np.float_t m = 0.
+    cdef double m = 0
     for j in range(len(actual_rows)):
         i = actual_rows[j]
 
@@ -302,13 +303,14 @@ def choose_supplementary(template):
         else:
             m = read2_max
 
-        if d[i, 4] == m:  # Primary, next best s
+        if d[i, 9] == m:  # Primary, next best s
             template['score_mat'][loc] += [True, 0]
         else:
             template['score_mat'][loc] += [False, 0]
     template['locs'] = locs
-    # if template["name"] == "simulated_genome_reads.2-chr17-5":
-    #     click.echo(d.astype(int), err=True)
+    # if template["name"] == "HISEQ2500-10:541:CATW5ANXX:6:2110:12123:87089":
+    #     click.echo((read1_max, read2_max), err=True)
+    #     click.echo(len(d), err=True)
     #     click.echo(actual_rows, err=True)
     #     click.echo(template["score_mat"], err=True)
     #     quit()

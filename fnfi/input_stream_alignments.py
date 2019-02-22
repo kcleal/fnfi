@@ -15,11 +15,11 @@ import c_io_funcs
 def process_template(read_template):
     paired = c_io_funcs.sam_to_array(read_template)
 
-    # if read_template["name"] == "HWI-D00360:8:H88U0ADXX:2:1212:17210:75969":
-    #     click.echo(read_template, err=True)
+    # if read_template["name"] == "HISEQ2500-10:539:CAV68ANXX:7:2211:10642:81376":
+    #     click.echo("prc", err=True)
 
     if paired:
-        data_io.to_output(read_template)
+        # data_io.to_output(read_template)
         return
 
     res = pairing.process(read_template)
@@ -29,7 +29,7 @@ def process_template(read_template):
         c_io_funcs.add_scores(read_template, *res)
         c_io_funcs.choose_supplementary(read_template)
         c_io_funcs.score_alignments(read_template, read_template["ri"], read_template['rows'], read_template['data'])
-        data_io.to_output(read_template)
+        # data_io.to_output(read_template)
 
 
 def worker(queue, out_queue):
@@ -144,6 +144,8 @@ def process_reads(args):
             temp = data_io.make_template(*data_tuple)
 
             process_template(temp)
+            # if temp["name"] == "HISEQ2500-10:539:CAV68ANXX:7:2211:10642:81376":
+            #     click.echo("pc2", err=True)
 
             if temp['passed']:
                 outstr = data_io.to_output(temp)

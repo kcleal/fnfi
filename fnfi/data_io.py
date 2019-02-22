@@ -82,10 +82,14 @@ def to_output(template):
     return "".join(template["name"] + "\t" + "\t".join(i) + "\n" for i in sam)
 
 
+def get_bed_regions(bed):
+    return [tuple([int(j) if j.isdigit() else j for j in i.strip().split("\t")[:3]]) for i in open(bed, "r") if i[0] != "#"]
+
+
 def overlap_regions(bed):
     if not bed:
         return None
-    regions = [i.split("\t")[:3] for i in open(bed, "r") if i[0] != "#"]
+    regions = get_bed_regions(bed)
     chrom_interval_start = defaultdict(list)
     chrom_interval_end = defaultdict(list)
     for c, s, e in regions:
@@ -109,6 +113,19 @@ def intersecter(tree, chrom, start, end):
             return 0
     else:
         return 0
+
+
+def get_include_reads(include, bam):
+
+    if not include:
+        for r in bam:
+            yield r
+
+    regions = [i.strip().split("\t")[:3] for i in open(include, "r") if i[0] != "#"]
+    for c, s, e in regions:
+        click.echo("Reading {}:{}-{}".format(c, s, e), err=True)
+        for r in bam.fetch(c, int(s), int(e)):
+            yield r
 
 
 def sam_itr(args):
@@ -225,6 +242,10 @@ def iterate_mappings(args, version):
             if len(rows) > 0:
                 total += 1
                 fq = fq_getter(fq_iter, name, args, fq_buffer)
+
+                # if name == "HISEQ2500-10:539:CAV68ANXX:7:2211:10642:81376":
+                #     click.echo("io", err=True)
+
                 yield (rows, args, max_d, last_seen_chrom, fq)
 
             rows = []

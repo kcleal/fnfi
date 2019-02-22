@@ -494,6 +494,12 @@ def get_raw_cov_information(r, regions, window_info, regions_depth):
 
     # Put non-region first
     kind = None
+
+    if not ar and not br:
+        kind = "extra-regional"
+        # Skip if regions have been provided; almost always false positives
+        return None
+
     if (br and not ar) or (not br and ar):
         kind = "hemi-regional"
         if not br and ar:
@@ -505,8 +511,6 @@ def get_raw_cov_information(r, regions, window_info, regions_depth):
             r["posB"] = posA
             r["cipos95B"] = cipos95A
 
-    if not ar and not br:
-        kind = "extra-regional"
     if ar and br:
         if r["chrA"] == r["chrB"]:
             rA = list(regions[r["chrA"]].find_overlap(r["posA"], r["posA"] + 1))[0]

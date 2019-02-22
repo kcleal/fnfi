@@ -28,8 +28,8 @@ defaults = {
             "max_insertion": 150.,
             "min_aln": 17.,
             "max_overlap": 150.,
-            "ins_cost": 0.05,
-            "ol_cost": 1.05,
+            "ins_cost": 0.1,
+            "ol_cost": 1.,
             "inter_cost": 2.,
             "u": 9.,
             "match_score": 1.,
@@ -38,7 +38,8 @@ defaults = {
             "svs_out": "-",
             "replace_hardclips": "False",
             "fq1": None,
-            "fq2": None
+            "fq2": None,
+            "max_cov": 150
             }
 
 align_args = {}
@@ -251,6 +252,8 @@ def fnfi_aligner(ctx, **kwargs):
 @click.argument('sv-aligns', required=True, type=click.Path(exists=True))
 @click.argument("svs-out", required=False, type=click.Path())
 @click.option('--clip-length', help="Minimum soft-clip length; >= threshold are kept.", default=defaults["clip_length"], type=int,
+              show_default=True)
+@click.option('--max-cov', help="Regions with > max-cov that do no overlap 'include' are discarded.", default=defaults["max_cov"], type=float,
               show_default=True)
 @click.option("--insert-median", help="Template insert size", default=defaults["insert_median"], type=float)
 @click.option("--insert-stdev",  help="Template standard-deviation", default=defaults["insert_stdev"], type=float)
