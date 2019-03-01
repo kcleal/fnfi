@@ -22,8 +22,8 @@ defaults = {
             "exclude": None,
             "include": None,
             "paired": "True",
-            "insert_median": 210.,
-            "insert_stdev": 175.,
+            # "insert_median": 210.,
+            # "insert_stdev": 175.,
             "read_length": 125.,
             "max_insertion": 150.,
             "min_aln": 17.,
@@ -161,9 +161,10 @@ def apply_ctx(ctx, kwargs):
         for k, v in defaults.items() + kwargs.items():
             ctx.obj[k] = v
     i, j = map(float, ctx.obj["I"].split(","))
-    ctx.obj["insert_median"] = i
-    ctx.obj["insert_stdev"] = j
-    click.echo("Insert size {}, insert stdev {}".format(i, j), err=True)
+    if "insert_median" not in ctx.obj:
+        ctx.obj["insert_median"] = i
+        ctx.obj["insert_stdev"] = j
+
     return ctx
 
 

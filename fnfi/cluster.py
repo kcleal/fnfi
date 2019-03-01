@@ -30,22 +30,43 @@ except NameError:
     xrange = range
 
 
-class Scoper:
+class Alignment(object):
+    """Picklable struct to hold the contents of pysam alignment"""
+    __slots__ = ["reference_end", "cigar", "pos", "flag", "rname", "qname", "rnext", "pnext", "seq", "cigartuples",
+                 "query_qualities"]
+
+    def __init__(self, a):
+        self.reference_end = a.reference_end
+        self.cigar = a.cigar
+        self.pos = a.pos
+        self.flag = a.flag
+        self.rname = a.rname
+        self.qname = a.qname
+        self.rnext = a.rnext
+        self.pnext = a.pnext
+        self.seq = a.seq
+        self.cigartuples = self.cigar
+        self.query_qualities = a.query_qualities
+
+
+class Scoper(object):
     """Keeps track of which reads are in scope. Maximum distance depends on the template insert_median"""
-    def __init__(self, max_dist, clip_length=20, max_depth=60):
+    def __init__(self, max_dist, clip_length=20, max_depth=60):  # Todo add parameter for this
         self.max_dist = max_dist
         self.max_depth = max_depth
         self.scope = []
         self.clip_length = clip_length
 
-    def update(self, current_read):
+    def update(self, input_read):
+
+        current_read = Alignment(input_read)  # Convert to friendly format
         if len(self.scope) == 0:
             self.scope.append(current_read)
-            return
+            return current_read
 
         elif len(self.scope) > 0 and current_read.rname != self.scope[-1].rname:
             self.scope = [current_read]  # Empty scope on new chromosome
-            return
+            return current_read
 
         current_pos = current_read.pos
 
@@ -66,6 +87,7 @@ class Scoper:
                 self.scope = self.scope[slice(trim_scope_idx, len(self.scope))]
 
         self.scope.append(current_read)
+        return current_read
 
     @staticmethod
     def overlap(start1, end1, start2, end2):
@@ -558,6 +580,7 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=(), w
 
     G = nx.Graph()
     winds = [(c, s - window_pad if s - window_pad > 0 else 0, e + window_pad) for c, s, e in input_windows]
+
     for widx, window in enumerate(winds):
 
         for r in infile.fetch(*window):
@@ -586,7 +609,7 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=(), w
                 buf_del_index += 1
 
             all_flags[r.qname].add((r.flag, r.pos))
-            scope.update(r)  # Add alignment to scope
+            r = scope.update(r)  # Add alignment to scope, convert to a pickle-able object
 
             ol_include = False
             if tree:
@@ -602,7 +625,6 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=(), w
             bb = 0
             yy = 0
 
-            # Todo parallelize this loop:
             for t, ol, sup_edge in scope.iterate():  # Other read, overlap current read, supplementary edge
                 if not t:
                     break
@@ -672,14 +694,6 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=(), w
                 # Only add an edge if either u or v is missing, not if both (or neither) missing
                 if has_u != has_v:  # XOR
                     new_edges.append((u, v, {"c": "w"}))
-
-        # if g.has_node(('simulated_reads.intra.0.2-id2_A_chr21:46696380_B_chr21:46697291-69', 2145, 46696345)):  # todo find out which no white edges added
-        #     ec = []
-        #     echo(nodes_to_check)
-        #     for item in g.edges(data=True):
-        #         ec.append(item[2]['c'])
-        #     echo("!subg size", len(g.nodes()), Counter(ec))
-        #     quit()
 
     # Regroup based on white edges (link together read-pairs)
     G.add_edges_from(new_edges)
@@ -1032,7 +1046,6 @@ def get_component_from_seed(G, seed_nodes):
             v = edge[1]
             if v not in seen:
                 found_nodes.add(v)
-                #if edge[2]['c'] == "white":
                 nodes_to_visit.add(v)
     return G.subgraph(found_nodes)
 
@@ -1063,13 +1076,6 @@ def merge_events(potential, max_dist, tree, try_rev=False):
     G = nx.Graph()
     seen = set([])  # Tested edges
     printy = False
-
-        #
-        #
-        # total_matched = shortest - result["editDistance"]
-        # # total_matched = sum([blk.size for blk in matching_blocks])
-        # identity = total_matched / float(shortest)
-        # return identity
 
     for i in range(len(potential)):
         for j in range(len(potential)):
@@ -1104,20 +1110,6 @@ def merge_events(potential, max_dist, tree, try_rev=False):
                 ci, cj = str(ei["contig"]).upper(), str(ej["contig"]).upper()
             else:
                 continue
-
-            # if "AATGGTGATTTCCTTTATAGATGTAAATTTTC" in ci and "AATGGTGATTTCCTTTATAGATGTAAATTTTC" in cj:
-            #     echo("hi", loci_same)
-            #     echo(ci)
-            #     echo(cj)
-            #     echo(assembler.check_contig_match(ci, cj))
-            #
-            #     matcher = difflib.SequenceMatcher(None, ci, cj)
-            #     matching_blocks = matcher.get_matching_blocks()
-            #     echo(matching_blocks)
-            #     echo(len(ci), len(cj))
-            #     printy = True
-            # else:
-            #     printy = False
 
             if loci_same:
                 if ci != "None" and len(ci) > 0 and cj != "None" and len(cj) > 0:  # Both have contigs
