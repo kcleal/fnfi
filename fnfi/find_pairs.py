@@ -100,10 +100,14 @@ def get_reads(args):
 
     outbam.close()
 
-    # Save the insert size and read length for later
-    insert_median, insert_stdev = np.median(insert_size), np.std(insert_size)
-    read_length = np.mean(read_length)
-    click.echo("Median insert size: {} (+/- {}). Read length: {}".format(np.round(insert_median, 2), np.round(insert_stdev, 2), np.round(read_length, 1)), err=True)
+    if len(insert_size) == 0:
+        insert_median, insert_stdev = args["insert_median"], args["insert_stdev"]
+        click.echo("WARNING: could not infer insert size, no 'normal' pairings found. Using arbitrary values", err=True)
+    else:
+        insert_median, insert_stdev = np.median(insert_size), np.std(insert_size)
+        insert_median, insert_stdev = np.round(insert_median, 2), np.round(insert_stdev, 2)
+
+    click.echo("Median insert size: {} (+/- {})".format(insert_median, insert_stdev), err=True)
 
     return insert_median, insert_stdev, read_length, out_name
 
@@ -112,8 +116,9 @@ def convert_to_fastq(args, outname):
 
     # pysam.sort(*("-n -@{} -o {} {}".format(args["procs"], outname + ".srt.bam", outname + ".bam").split(" ")))
 
-    #BedTool(outname + ".srt.bam").bam_to_fastq(fq=outname + "1.fq", fq2=outname + "2.fq")
-    call("samtools sort -n -@{t} -o {o} {i}".format(t=args["procs"], o=outname + ".srt.bam",
+    # call("samtools sort -n -@{t} -o {o} {i}".format(t=args["procs"], o=outname + ".srt.bam",
+    #                                                     i=outname + ".bam"), shell=True)
+    call("samtools collate -r 100000 -f -o {o} {i}".format(o=outname + ".srt.bam",
                                                     i=outname + ".bam"), shell=True)
 
     call("samtools fastq -s /dev/null -1 {fq1} -2 {fq2} {bam}".format(fq1=outname + "1.fq",

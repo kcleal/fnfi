@@ -36,10 +36,10 @@ def guess_break_point(read, bam, insert_size, insert_stdev):
     else:
         # Breakpoint position is beyond the end of the last read
         if read.flag & 16:  # Read on reverse strand guess to the left
-            p = read.pos - (insert_size / 2) + insert_stdev
+            p = read.pos  # - (insert_size / 2) + insert_stdev
             t = 5
         else:  # Guess right
-            p = read.reference_end + (insert_size / 2) - insert_stdev
+            p = read.reference_end  # + (insert_size / 2) - insert_stdev
             t = 3
         return t, read.qname, bam.get_reference_name(read.rname), int(p)
 
@@ -48,8 +48,7 @@ def process_node_set(node_set, all_reads, bam, insert_size, insert_stdev):
 
     break_points = {}
     seen = set([])
-    # for u, v, d in edges:
-    for n, f, p in node_set:  # node name, flag
+    for n, f, p in node_set:  # node name, flag, position
         if n in seen:
             continue
         seen.add(n)  # Seen template
@@ -165,7 +164,7 @@ def call_break_points(c1, c2):
     info = {}
     count = 0
     contributing_reads = set([])
-    for grp in (c1, c2):
+    for grp in (c1, c2):  # Todo add a soft-clip field to c1/c2 and if possible drop reads that are not softclipped
         if len(grp) == 0:
             continue  # When no c2 is found
         for i in grp:
@@ -175,6 +174,7 @@ def call_break_points(c1, c2):
         grp = [i for i in grp if i[2] == chrom]
         sc_side = Counter([i[0] for i in grp]).most_common()[0][0]
         bp = [i[3] for i in grp]
+
         mean_pos = int(np.mean(bp))
         mean_95 = abs(int(np.percentile(bp, [97.5])) - mean_pos)
         if count == 0:
@@ -303,8 +303,8 @@ def score_reads(read_names, all_reads):
             averaged[k] = sum(v) / float(len(v))
         else:
             averaged[k] = 0
-    #averaged["max_k_coverage"] = max_kmer(collected)
-    #averaged["soft_clip_stacks"] = count_soft_clip_stacks(collected)
+    # averaged["max_k_coverage"] = max_kmer(collected)
+    # averaged["soft_clip_stacks"] = count_soft_clip_stacks(collected)
 
     return averaged
 
@@ -316,10 +316,13 @@ def breaks_from_one_side(node_set, reads, bam, insert_size, insert_stdev):
     return pre_process_breakpoints(tup).values()  # Don't return whole dict
 
 
-def single(bm, reads, bam, insert_size, insert_stdev):
-    # Todo single should use an assembly if available
+def single(bm, reads, bam, assemblies, insert_size, insert_stdev, printy):
+
     bmnodes = list(bm.nodes())
     assert len(bmnodes) == 1
+
+    ass = assemblies[bmnodes[0]]
+
 
     break_points = process_node_set(bmnodes[0], reads, bam, insert_size, insert_stdev)  # Dict, keyed by node
     if break_points is None or len(break_points) == 0:
@@ -328,10 +331,11 @@ def single(bm, reads, bam, insert_size, insert_stdev):
     break_points = pre_process_breakpoints(break_points)
 
     if not break_points:
-        return None
+        return
 
-    dict_a, dict_b = separate_mixed(break_points)
+    dict_a, dict_b = separate_mixed(break_points, thresh=insert_size + insert_stdev)
     info, contrib_reads = call_break_points(dict_a.values(), dict_b.values())
+    info["linked"] = 0  # Only 1 assembly
 
     info["total_reads"] = len(contrib_reads)
     both = list(dict_a.keys()) + list(dict_b.keys())
@@ -340,9 +344,35 @@ def single(bm, reads, bam, insert_size, insert_stdev):
     info['supp'] = len([1 for i in both if i[1] & 2048])
     info['sc'] = len([1 for name, flag, pos in both if "S" in reads[name][(flag, pos)].cigarstring])
     info["block_edge"] = 0
+    info["contig"] = None
+    # if ass:
+    #     if "contig" in ass and (ass["left_clips"] > 0 or ass["right_clips"] > 0):
+    #         # Use contig to derive chrA posA
+    #         info["contig"] = ass["contig"]
+    #
+    #         if ass["left_clips"] > ass["right_clips"]:
+    #             info["posA"] = ass["ref_start"]
+    #         else:
+    #             info["posA"] = ass["ref_end"]
+    #         info["chrA"] = ass["bamrname"]
 
     info.update(score_reads(bmnodes[0], reads))
+    printy = False
+    # if "contig" in info and info["contig"] is not None:
+    #     if "AAAATATAACAGACATATTACT" in info["contig"]:
+    #         printy = True
+    if printy:
+        echo("dicta")
+        for k, v in dict_a.items():
+            echo(k, v)
+        echo("dictb")
+        for k, v in dict_b.items():
+            echo(k, v)
+        echo("single bm node assembly", ass)
+        echo("single bm node info    ", info)
 
+        echo("1", "{}:{}".format(info["chrA"], info["posA"]), "{}:{}".format(info["chrB"], info["posB"]), info["contig"])
+        echo("")
     return info
 
 
@@ -352,8 +382,9 @@ def one_edge(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev)
     ns = list(bm.nodes())
     as1 = assemblies[ns[0]]
     as2 = assemblies[ns[1]]
-    # roi = "simulated_reads.0.10-id277_A_chr21:46699632_B_chr17:12568030-36717"
+    # roi = "simulated_reads.intra.0.2-id14_A_chr21:46699836_B_chr21:46697397-425"
     # if roi in reads:
+    #     echo(reads)
     #     echo("as1", as1)
     #     echo("as2", as2)
 
@@ -361,6 +392,7 @@ def one_edge(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev)
         tuple_a = breaks_from_one_side(ns[0], reads, bam, insert_size, insert_stdev)
     else:
         tuple_a = get_tuple(as1)  # Tuple of breakpoint information
+
     if not tuple_a:
         return None
 
@@ -371,10 +403,15 @@ def one_edge(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev)
     if not tuple_b:
         return None
 
+    info, contrib_reads = call_break_points(tuple_a, tuple_b)
+    info["linked"] = 0
+
     if as1 is not None and len(as1) > 0 and as2 is not None and len(as2) > 0:
         as1, as2 = assembler.link_pair_of_assemblies(as1, as2, clip_length)
+        if as1["linked"] == 1:
+            info["linked"] = 1
 
-    info, contrib_reads = call_break_points(tuple_a, tuple_b)
+
 
     # if roi in reads:
     #     echo("info", info)
@@ -386,15 +423,14 @@ def one_edge(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev)
     info.update(score_reads(ns[0].union(ns[1]), reads))
     info["block_edge"] = 1
 
+    info["contig"] = None
     if as1 is not None and "contig" in as1:
         info["contig"] = as1["contig"]
     elif as2 is not None and "contig" in as2:
         info["contig"] = as2["contig"]
-    else:
-        info["contig"] = ""
 
     # if roi in reads:
-    #     echo(info)
+    #     echo("{}:{}   {}:{}".format(info["chrA"], info["posA"], info["chrB"], info["posB"]))
 
     return info
 
@@ -419,7 +455,7 @@ def multi(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev):
         yield one_edge(sub, reads, bam, assemblies, clip_length, insert_size, insert_stdev)
 
 
-def call_from_block_model(bm_graph, parent_graph, reads, bam, clip_length, insert_size, insert_stdev):
+def call_from_block_model(bm_graph, parent_graph, reads, bam, clip_length, insert_size, insert_stdev, printy=False):
 
     # Block model is not guaranteed to be connected
     for bm in nx.connected_component_subgraphs(bm_graph):
@@ -446,14 +482,18 @@ def call_from_block_model(bm_graph, parent_graph, reads, bam, clip_length, inser
             #         click.echo("hi", err=True)
             #         quit()
         # echo(bm.edges)
+        if printy:
+            echo("Number of bm edges/nodes:", len(bm.edges()), len(bm.nodes()))
+
         if len(bm.edges()) > 1:
             # Break apart connected
             for event in multi(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev):
+
                 yield event
 
         if len(bm.nodes()) == 1:
             # Single isolated node
-            yield single(bm, reads, bam, insert_size, insert_stdev)
+            yield single(bm, reads, bam, assemblies, insert_size, insert_stdev, printy)
 
         if len(bm.edges()) == 1:
             # Easy case
@@ -465,7 +505,7 @@ def call_to_string(call_info):
     k = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "cipos95A", "cipos95B",
          "DP", "DApri", "DN", "NMpri", "SP", "DAsupp",
          "NMsupp", "maxASsupp", "contig", "pe", "supp", "sc", "block_edge", "MAPQpri", "MAPQsupp", "raw_reads_10kb",
-         "kind", "connectivity"]
+         "kind", "connectivity", "linked"]
 
     return "\t".join([str(call_info[ky]) if ky in call_info else str(None) for ky in k]) + "\n"
 
@@ -488,6 +528,7 @@ def get_raw_cov_information(r, regions, window_info, regions_depth):
 
     if "chrB" not in r:  # todo fix this
         return None
+
     br = False
     if data_io.intersecter(regions, r["chrB"], r["posB"], r["posB"] + 1):
         br = True
@@ -498,30 +539,42 @@ def get_raw_cov_information(r, regions, window_info, regions_depth):
     if not ar and not br:
         kind = "extra-regional"
         # Skip if regions have been provided; almost always false positives
-        return None
+        if regions is not None:  # Todo this throws away all genomic stuff! Too harsh
+            return None
 
+    switch = False
     if (br and not ar) or (not br and ar):
         kind = "hemi-regional"
         if not br and ar:
-            chrA, posA, cipos95A = r["chrA"], r["posA"], r["cipos95A"]
-            r["chrA"] = r["chrB"]
-            r["posA"] = r["posB"]
-            r["cipos95A"] = r["cipos95B"]
-            r["chrB"] = chrA
-            r["posB"] = posA
-            r["cipos95B"] = cipos95A
+            switch = True
 
     if ar and br:
+
         if r["chrA"] == r["chrB"]:
             rA = list(regions[r["chrA"]].find_overlap(r["posA"], r["posA"] + 1))[0]
             rB = list(regions[r["chrB"]].find_overlap(r["posB"], r["posB"] + 1))[0]
 
             if rA[0] == rB[0] and rA[1] == rB[1]:
                 kind = "intra_regional"
+                # Put posA first
+                if r["posA"] > r["posB"]:
+                    switch = True
+
             else:
                 kind = "inter-regional"
+                if r["chrA"] != sorted([r["chrA"], r["chrB"]])[0]:
+                    switch = True
         else:
             kind = "inter-regional"
+
+    if switch:
+        chrA, posA, cipos95A = r["chrA"], r["posA"], r["cipos95A"]
+        r["chrA"] = r["chrB"]
+        r["posA"] = r["posB"]
+        r["cipos95A"] = r["cipos95B"]
+        r["chrB"] = chrA
+        r["posB"] = posA
+        r["cipos95B"] = cipos95A
 
     reads_10kb = 0
     if kind == "hemi-regional":

@@ -8,6 +8,7 @@ import difflib
 import numpy as np
 from collections import defaultdict
 import click
+from skbio.alignment import StripedSmithWaterman
 
 
 def echo(*args):
@@ -50,7 +51,7 @@ def get_ref_pos(cigar, pos, seq):
                 o += range(length, 0, -1)
             else:
                 t += ["r"] * length
-                o += range(length)
+                o += range(1, length)
 
         elif opp == 0 or opp == 7 or opp == 8 or opp == 3:  # All match, match (=), mis-match (X), N's
             # N's are still in reference
@@ -280,13 +281,13 @@ def dag_longest_path(G, weight='weight', default_weight=1):
     return path
 
 
-def base_assemble(g, reads, bam, id=0):
+def base_assemble(g, reads, bam, iid=0):
     """
     Assembles reads that have overlaps. Uses alignment positions to determine contig construction
     :param g: The overlap graph
     :param reads: Dict of read_name: flag: alignment
     :param bam: Original bam for header access
-    :param id: Unique ID for the event
+    :param iid: Unique ID for the event
     :return: Returns None if no soft-clipped portion of the cluster was assembled, otherwise a result dict is returned
     """
     # Note supplementary are included in assembly; helps link regions
@@ -295,7 +296,7 @@ def base_assemble(g, reads, bam, id=0):
     rd = [reads[n[0]][(n[1], n[2])] for n in g.nodes()]
 
     # rnames = set([r.qname for r in rd])
-    # roi = "simulated_reads.3.10-id293_A_chr21:46699688_B_chr1:38378863-38649"
+    # roi = "simulated_reads.intra.0.2-id2_A_chr21:46696380_B_chr21:46697291-69"
     G = nx.DiGraph()
 
     strand_d = {}
@@ -311,7 +312,6 @@ def base_assemble(g, reads, bam, id=0):
         u, qual_u = next(seq_pos)
         first_node = u
         for v, qual_v in seq_pos:
-
             if G.has_edge(u, v):
                 G[u][v]["weight"] += int(qual_u + qual_v)
             else:
@@ -332,7 +332,9 @@ def base_assemble(g, reads, bam, id=0):
         for r in rd:
             echo(bam.get_reference_name(r.rname))
             echo(str(r).split("\t"))
-        quit()
+
+    if not path:
+        return None  # No assembly
 
     longest_left_sc = path[0][2]
     longest_right_sc = path[-1][2]
@@ -357,10 +359,10 @@ def base_assemble(g, reads, bam, id=0):
            "strand_l": strand_counts.count(-1),
            "strand_r": strand_counts.count(1),
            "ref_start": matches[0],
-           "ref_end": matches[-1] + 1,
+           "ref_end": matches[-1],
            "read_names": set(read_names),
            "contig": bases,
-           "id": id}
+           "id": iid}
 
     return res
 
@@ -394,6 +396,31 @@ def explore_local(starting_nodes, large_component, color, upper_bound):
     return found
 
 
+def check_contig_match(a, b, diffs=8):
+    # matcher = difflib.SequenceMatcher(None, a, b)
+    # matching_blocks = matcher.get_matching_blocks()
+
+    # shortest = len(a) if len(a) <= len(b) else len(b)
+
+    query = StripedSmithWaterman(str(a), suppress_sequences=True)
+    alignment = query(str(b))
+
+    qs, qe = alignment.query_begin, alignment.query_end
+    als, ale = alignment.target_begin, alignment.target_end_optimal
+
+    # Find the length of any unaligned overhangs
+    extent_left = min((qs, als))
+    extent_right = min((len(a) - qe, len(b) - ale))
+    total_overhangs = extent_left + extent_right
+    aln_s = alignment.optimal_alignment_score
+    expected = (qe - qs) * 2
+    diff = expected - aln_s + total_overhangs
+    if diff > diffs:  # e.g. 2 mis-matches + 2 unaligned overhanging bits
+        return 0
+    else:
+        return 1
+
+
 def link_pair_of_assemblies(a, b, clip_length):
     seqs = []
     for i in (a, b):
@@ -420,23 +447,22 @@ def link_pair_of_assemblies(a, b, clip_length):
         if binfo[6]:
             bseq = rev_comp(bseq)
 
+    if check_contig_match(aseq.upper(), bseq.upper()) == 1:
+        a["linked"] = 1
+    else:
+        a["linked"] = 0
+
     # See https://docs.python.org/2/library/difflib.html
-    m = difflib.SequenceMatcher(a=aseq.upper(), b=bseq.upper(), autojunk=None)
-    longest = m.find_longest_match(0, len(aseq), 0, len(bseq))
-
-    a_align = [i.islower() for i in aseq[longest[0]:longest[0] + longest[2]]]
-    b_align = [i.islower() for i in bseq[longest[1]:longest[1] + longest[2]]]
-
-    sc_a = sum(a_align)
-    sc_b = sum(b_align)
-    # non_sc_a = len(a_align) - sc_a
-    # non_sc_b = len(b_align) - sc_b
-
-    best_sc = max([sc_a, sc_b])
-    # best_non_sc = max([non_sc_a, non_sc_b])
-    a["linked"] = "weak link"
-    a["best_sc"] = best_sc
-    if best_sc > clip_length:  # and best_non_sc >= 5:
-        a["linked"] = "strong link"
+    # m = difflib.SequenceMatcher(a=aseq.upper(), b=bseq.upper(), autojunk=None)
+    # longest = m.find_longest_match(0, len(aseq), 0, len(bseq))
+    # a_align = [i.islower() for i in aseq[longest[0]:longest[0] + longest[2]]]
+    # b_align = [i.islower() for i in bseq[longest[1]:longest[1] + longest[2]]]
+    # sc_a = sum(a_align)
+    # sc_b = sum(b_align)
+    # best_sc = max([sc_a, sc_b])
+    # a["linked"] = "weak link"
+    # a["best_sc"] = best_sc
+    # if best_sc > clip_length:  # and best_non_sc >= 5:
+    #     a["linked"] = "strong link"
 
     return a, b

@@ -104,7 +104,7 @@ def check_for_good_pairing(r1, r2, name, max_d):
 
 
 def sam_to_array(template):
-
+    # Expect read1 and read2 alignments to be concatenated, not mixed together
     data, overlaps = zip(*template["inputdata"])
 
     template["inputdata"] = [[i[1], i[2], i[3]] + i[4].strip().split("\t") for i in data]
@@ -131,6 +131,7 @@ def sam_to_array(template):
     cdef float bias = template["bias"]
 
     cdef int read1_strand_set, read2_strand_set, current_l
+    cdef int first_read2_index = len(template["inputdata"])
     read1_set = 0  # Occationally multiple primaries, take the longest
     read2_set = 0
 
@@ -159,7 +160,12 @@ def sam_to_array(template):
         if not flag & 64 and not flag & 128:
             arr[idx, 7] = 1
         else:
-            arr[idx, 7] = 1 if flag & 64 else 2
+            if flag & 64:
+                arr[idx, 7] = 1
+            else:
+                arr[idx, 7] = 2
+                if idx < first_read2_index:
+                    first_read2_index = idx
 
         tags = [i.split(":") for i in l[11:]]
         seq_len = len(l[8])
@@ -240,7 +246,7 @@ def sam_to_array(template):
     cdef int j
     if template["paired_end"]:  # Increment the contig position of read 2
 
-        for j in range(len(arr)):
+        for j in range(first_read2_index, len(arr)):
             if arr[j, 7] == 2:  # Second in pair
                 arr[j, 2] += template['read1_length']
                 arr[j, 3] += template['read1_length']
@@ -250,6 +256,7 @@ def sam_to_array(template):
                 click.echo(arr[j, 3], err=True)
                 raise ValueError
     #np.random.shuffle(arr)  # Randomize order of chromosomes
+    template["first_read2_index"] = first_read2_index
     template['data'] = np.array(sorted(arr, key=lambda x: (x[2], -x[4]))).astype(float)
     template['chrom_ids'] = chrom_ids
 
@@ -320,7 +327,7 @@ def score_alignments(template, ri, np.ndarray[np.int64_t, ndim=1]  template_rows
 
     all_xs = []
     cdef int i, actual_row, item, idx
-    cdef float xs = 0
+    cdef float xs = -1
     cdef float size = 0
     cdef float qstart = 0
     cdef float qend = 0
@@ -329,17 +336,27 @@ def score_alignments(template, ri, np.ndarray[np.int64_t, ndim=1]  template_rows
     cdef float iend = 0
     cdef float iscore = 0
     cdef float ol = 0
+    cdef float ori_aln_score = 0
+    cdef int twoi = template["first_read2_index"]  # Use to skip read1/read2 alignments
 
     idx = 0
     for item in template_rows:
         actual_row = ri[item]
-        qstart, qend = template_data[actual_row, [2, 3]]
+        qstart, qend, readn, ori_aln_score = template_data[actual_row, [2, 3, 7, 9]]
         size = qend - qstart
-        xs = 0
-        for i in range(len(template_data)):
+
+        if template["paired_end"]:
+            if readn == 2:
+                rr = range(twoi, len(template_data))
+            else:
+                rr = range(0, twoi)
+        else:
+            rr = range(len(template_data))
+
+        for i in rr:
             if i == actual_row:
                 continue
-            istart, iend, iscore = template_data[i, [2, 3, 4]]
+            istart, iend, iscore = template_data[i, [2, 3, 4]]  # Note use biased align score, otherwise gets confusing
             isize = (iend - istart) + 1e-6
             # Check for overlap
             ol = max(0, min(qend, iend) - max(qstart, istart))
@@ -347,7 +364,13 @@ def score_alignments(template, ri, np.ndarray[np.int64_t, ndim=1]  template_rows
                 if iscore > xs:
                     xs = iscore
 
+        if xs == -1:
+            xs = ori_aln_score
         template["score_mat"][template["locs"][idx]][1] = xs
+
+        # if template["name"] == "HISEQ2500-10:539:CAV68ANXX:7:2104:14398:32264":
+        #     click.echo(template["score_mat"], err=True)
+        #     click.echo(template["data"].astype(int), err=True)
         idx += 1
 
 

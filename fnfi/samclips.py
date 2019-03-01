@@ -292,14 +292,14 @@ def add_sequence_back(item, reverse_me, template):
         seq = template["read2_seq"]
 
     if len(seq) != cigar_length:
-        return  # Cigar length is not set properly by mapper
+        return item  # Cigar length is not set properly by mapper
 
     # Occasionally the H is missing, means its impossible to add sequence back in
 
     total_cigar_length = sum([int(c[i]) for i in range(0, len(c), 2) if c[i + 1]])
     if (flag & 64 and len(template["read1_seq"]) > total_cigar_length) or \
             (flag & 128 and len(template["read2_seq"]) > total_cigar_length):
-        return
+        return item
 
     if flag & 64 and template["read1_seq"]:
         name = "read1"
@@ -315,7 +315,7 @@ def add_sequence_back(item, reverse_me, template):
         else:
             end = len(template["read2_seq"])
     else:
-        return  # read sequence is None or bad flag
+        return item  # read sequence is None or bad flag
 
     # Try and replace H with S
     if c[1] == "H" or c[-1] == "H":
@@ -528,6 +528,7 @@ def fixsam(template):
         out = [('pri', primary1, rev_A)] + out
 
     # Add read seq info back in if necessary, before reverse complementing. Check for hard clips and clip as necessary
+
     for a_type, aln, reverse_me in out:
 
         # print a_type, reverse_me

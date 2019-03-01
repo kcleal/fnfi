@@ -39,7 +39,9 @@ defaults = {
             "replace_hardclips": "False",
             "fq1": None,
             "fq2": None,
-            "max_cov": 150
+            "max_cov": 150,
+            "buffer_size": 100000,
+            "I": "210,175"
             }
 
 align_args = {}
@@ -158,6 +160,10 @@ def apply_ctx(ctx, kwargs):
     if len(ctx.obj) == 0:  # When run is invoked from cmd line, else run was invoked from test function
         for k, v in defaults.items() + kwargs.items():
             ctx.obj[k] = v
+    i, j = map(float, ctx.obj["I"].split(","))
+    ctx.obj["insert_median"] = i
+    ctx.obj["insert_stdev"] = j
+    click.echo("Insert size {}, insert stdev {}".format(i, j), err=True)
     return ctx
 
 
@@ -186,6 +192,8 @@ $4 threads to use""", default=None, type=click.Path(exists=True))
 @click.option("-p", "--procs", help="Processors to use", type=cpu_range, default=1, show_default=True)
 @click.option('--dest', help="Destination folder to use/create for saving results. Defaults to current directory",
               default=None, type=click.Path())
+@click.option('-I', help="Insert size and stdev as 'FLOAT,FLOAT'. If not provided, automatically inferred",
+              default=defaults["I"], type=str)
 @click.pass_context
 def run_command(ctx, **kwargs):
     """Run the fusion-finder pipeline."""
@@ -217,9 +225,8 @@ def find_reads(ctx, **kwargs):
 @click.argument("output", required=False, type=click.Path())
 @click.option("--paired", help="Paired end reads or single", default=defaults["paired"],
               type=click.Choice(["True", "False"]), show_default=True)
-@click.option("--insert-median", help="Template insert size", default=defaults["insert_median"], type=float, show_default=True)
-@click.option("--insert-stdev",  help="Template standard-deviation", default=defaults["insert_stdev"], type=float, show_default=True)
-@click.option("--read-length",  help="Length of a read in base-pairs", default=defaults["read_length"], type=float, show_default=True)
+@click.option('-I', help="Insert size and stdev as 'FLOAT,FLOAT'",
+              default=defaults["I"], type=str, show_default=True)
 @click.option("--replace-hardclips",  help="Replace hard-clips with soft-clips when possible", default=defaults["replace_hardclips"], type=click.Choice(["True", "False"]), show_default=True)
 @click.option("--fq1",  help="Fastq reads 1, used to add soft-clips to all hard-clipped read 1 alignments",
               default=defaults["fq1"], type=click.Path(), show_default=True)
@@ -255,14 +262,15 @@ def fnfi_aligner(ctx, **kwargs):
               show_default=True)
 @click.option('--max-cov', help="Regions with > max-cov that do no overlap 'include' are discarded.", default=defaults["max_cov"], type=float,
               show_default=True)
-@click.option("--insert-median", help="Template insert size", default=defaults["insert_median"], type=float)
-@click.option("--insert-stdev",  help="Template standard-deviation", default=defaults["insert_stdev"], type=float)
-@click.option("--read-length",  help="Length of a read in base-pairs", default=defaults["read_length"], type=float)
+@click.option('-I', help="Insert size and stdev as 'FLOAT,FLOAT'",
+              default=defaults["I"], type=str, show_default=True)
 @click.option('--verbose', type=click.Choice(["True", "False"]), default="True", help="If set to 'True' output is directed to a folder with the same name as the input file. Otherwise a .vcf file is generated")
 @click.option("-p", "--procs", help="Processors to use", type=cpu_range, default=defaults["procs"], show_default=True)
 @click.option('--include', help=".bed file, limit calls to regions", default=None, type=click.Path(exists=True))
 @click.option('--dest', help="Folder to use/create for saving results. Defaults to current directory",
               default=None, type=click.Path())
+@click.option("--buffer-size", help="Number of alignments to load into buffer", default=defaults["buffer_size"],
+              type=int, show_default=True)
 @click.pass_context
 def call_events(ctx, **kwargs):
     """Clusters reads into SV-events. Takes as input the original .bam file, and a .bam file with only sv-like reads."""
