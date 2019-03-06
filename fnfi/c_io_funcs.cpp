@@ -1983,7 +1983,6 @@ static const char __pyx_k_overlaps[] = "overlaps";
 static const char __pyx_k_pair_str[] = "pair_str";
 static const char __pyx_k_py_bytes[] = "py_bytes";
 static const char __pyx_k_seq_dest[] = "seq_dest";
-static const char __pyx_k_splitter[] = "splitter";
 static const char __pyx_k_template[] = "template";
 static const char __pyx_k_chrom_ids[] = "chrom_ids";
 static const char __pyx_k_chromname[] = "chromname";
@@ -1998,7 +1997,6 @@ static const char __pyx_k_read2_max[] = "read2_max";
 static const char __pyx_k_read2_seq[] = "read2_seq";
 static const char __pyx_k_read2_set[] = "read2_set";
 static const char __pyx_k_score_mat[] = "score_mat";
-static const char __pyx_k_splitters[] = "splitters";
 static const char __pyx_k_ValueError[] = "ValueError";
 static const char __pyx_k_actual_row[] = "actual_row";
 static const char __pyx_k_add_scores[] = "add_scores";
@@ -2006,8 +2004,6 @@ static const char __pyx_k_fq_read1_q[] = "fq_read1_q";
 static const char __pyx_k_fq_read2_q[] = "fq_read2_q";
 static const char __pyx_k_paired_end[] = "paired_end";
 static const char __pyx_k_path_score[] = "path_score";
-static const char __pyx_k_read1_alns[] = "read1_alns";
-static const char __pyx_k_read2_alns[] = "read2_alns";
 static const char __pyx_k_ImportError[] = "ImportError";
 static const char __pyx_k_actual_rows[] = "actual_rows";
 static const char __pyx_k_ids_to_name[] = "ids_to_name";
@@ -2173,7 +2169,6 @@ static PyObject *__pyx_n_s_r2;
 static PyObject *__pyx_n_s_random;
 static PyObject *__pyx_n_s_range;
 static PyObject *__pyx_n_s_re;
-static PyObject *__pyx_n_s_read1_alns;
 static PyObject *__pyx_n_s_read1_length;
 static PyObject *__pyx_n_s_read1_max;
 static PyObject *__pyx_n_s_read1_q;
@@ -2181,7 +2176,6 @@ static PyObject *__pyx_n_s_read1_reverse;
 static PyObject *__pyx_n_s_read1_seq;
 static PyObject *__pyx_n_s_read1_set;
 static PyObject *__pyx_n_s_read1_strand_set;
-static PyObject *__pyx_n_s_read2_alns;
 static PyObject *__pyx_n_s_read2_length;
 static PyObject *__pyx_n_s_read2_max;
 static PyObject *__pyx_n_s_read2_q;
@@ -2207,8 +2201,6 @@ static PyObject *__pyx_n_s_seq_src;
 static PyObject *__pyx_n_s_size;
 static PyObject *__pyx_n_s_sorted;
 static PyObject *__pyx_n_s_split;
-static PyObject *__pyx_n_s_splitter;
-static PyObject *__pyx_n_s_splitters;
 static PyObject *__pyx_n_s_start;
 static PyObject *__pyx_n_s_strip;
 static PyObject *__pyx_n_s_t;
@@ -6342,8 +6334,6 @@ static PyObject *__pyx_pf_4fnfi_10c_io_funcs_10choose_supplementary(CYTHON_UNUSE
   double __pyx_v_read1_max;
   double __pyx_v_read2_max;
   int __pyx_v_i;
-  int __pyx_v_read1_alns;
-  int __pyx_v_read2_alns;
   PyObject *__pyx_v_ids_to_name = NULL;
   PyObject *__pyx_v_locs = NULL;
   double __pyx_v_m;
@@ -6678,30 +6668,12 @@ static PyObject *__pyx_pf_4fnfi_10c_io_funcs_10choose_supplementary(CYTHON_UNUSE
  *     cdef double read2_max = 0
  *     cdef int i = 0             # <<<<<<<<<<<<<<
  * 
- *     cdef int read1_alns = 0
+ *     # cdef int read1_alns = 0
  */
   __pyx_v_i = 0;
 
-  /* "fnfi/c_io_funcs.pyx":280
- *     cdef int i = 0
- * 
- *     cdef int read1_alns = 0             # <<<<<<<<<<<<<<
- *     cdef int read2_alns = 0
- * 
- */
-  __pyx_v_read1_alns = 0;
-
-  /* "fnfi/c_io_funcs.pyx":281
- * 
- *     cdef int read1_alns = 0
- *     cdef int read2_alns = 0             # <<<<<<<<<<<<<<
- * 
- *     for j in range(len(actual_rows)):
- */
-  __pyx_v_read2_alns = 0;
-
   /* "fnfi/c_io_funcs.pyx":283
- *     cdef int read2_alns = 0
+ *     # cdef int read2_alns = 0
  * 
  *     for j in range(len(actual_rows)):             # <<<<<<<<<<<<<<
  *         i = actual_rows[j]
@@ -6727,7 +6699,7 @@ static PyObject *__pyx_pf_4fnfi_10c_io_funcs_10choose_supplementary(CYTHON_UNUSE
  *         i = actual_rows[j]
  *         if d[i, 7] == 1 and d[i, 9] > read1_max:  # Use original alignment score, not biased             # <<<<<<<<<<<<<<
  *             read1_max = d[i, 9]
- *             read1_alns += 1
+ *             # read1_alns += 1
  */
     __pyx_t_16 = __pyx_v_i;
     __pyx_t_17 = 7;
@@ -6748,38 +6720,29 @@ static PyObject *__pyx_pf_4fnfi_10c_io_funcs_10choose_supplementary(CYTHON_UNUSE
  *         i = actual_rows[j]
  *         if d[i, 7] == 1 and d[i, 9] > read1_max:  # Use original alignment score, not biased
  *             read1_max = d[i, 9]             # <<<<<<<<<<<<<<
- *             read1_alns += 1
+ *             # read1_alns += 1
  *         elif d[i, 7] == 2 and d[i, 9] > read2_max:
  */
       __pyx_t_21 = __pyx_v_i;
       __pyx_t_22 = 9;
       __pyx_v_read1_max = (*__Pyx_BufPtrStrided2d(double *, __pyx_pybuffernd_d.rcbuffer->pybuffer.buf, __pyx_t_21, __pyx_pybuffernd_d.diminfo[0].strides, __pyx_t_22, __pyx_pybuffernd_d.diminfo[1].strides));
 
-      /* "fnfi/c_io_funcs.pyx":287
- *         if d[i, 7] == 1 and d[i, 9] > read1_max:  # Use original alignment score, not biased
- *             read1_max = d[i, 9]
- *             read1_alns += 1             # <<<<<<<<<<<<<<
- *         elif d[i, 7] == 2 and d[i, 9] > read2_max:
- *             read2_max = d[i, 9]
- */
-      __pyx_v_read1_alns = (__pyx_v_read1_alns + 1);
-
       /* "fnfi/c_io_funcs.pyx":285
  *     for j in range(len(actual_rows)):
  *         i = actual_rows[j]
  *         if d[i, 7] == 1 and d[i, 9] > read1_max:  # Use original alignment score, not biased             # <<<<<<<<<<<<<<
  *             read1_max = d[i, 9]
- *             read1_alns += 1
+ *             # read1_alns += 1
  */
       goto __pyx_L7;
     }
 
     /* "fnfi/c_io_funcs.pyx":288
  *             read1_max = d[i, 9]
- *             read1_alns += 1
+ *             # read1_alns += 1
  *         elif d[i, 7] == 2 and d[i, 9] > read2_max:             # <<<<<<<<<<<<<<
  *             read2_max = d[i, 9]
- *             read2_alns += 1
+ *             # read2_alns += 1
  */
     __pyx_t_23 = __pyx_v_i;
     __pyx_t_24 = 7;
@@ -6797,85 +6760,29 @@ static PyObject *__pyx_pf_4fnfi_10c_io_funcs_10choose_supplementary(CYTHON_UNUSE
     if (__pyx_t_15) {
 
       /* "fnfi/c_io_funcs.pyx":289
- *             read1_alns += 1
+ *             # read1_alns += 1
  *         elif d[i, 7] == 2 and d[i, 9] > read2_max:
  *             read2_max = d[i, 9]             # <<<<<<<<<<<<<<
- *             read2_alns += 1
+ *             # read2_alns += 1
  * 
  */
       __pyx_t_27 = __pyx_v_i;
       __pyx_t_28 = 9;
       __pyx_v_read2_max = (*__Pyx_BufPtrStrided2d(double *, __pyx_pybuffernd_d.rcbuffer->pybuffer.buf, __pyx_t_27, __pyx_pybuffernd_d.diminfo[0].strides, __pyx_t_28, __pyx_pybuffernd_d.diminfo[1].strides));
 
-      /* "fnfi/c_io_funcs.pyx":290
- *         elif d[i, 7] == 2 and d[i, 9] > read2_max:
- *             read2_max = d[i, 9]
- *             read2_alns += 1             # <<<<<<<<<<<<<<
- * 
- *     template["splitters"] = [read1_alns > 1, read2_alns > 1]
- */
-      __pyx_v_read2_alns = (__pyx_v_read2_alns + 1);
-
       /* "fnfi/c_io_funcs.pyx":288
  *             read1_max = d[i, 9]
- *             read1_alns += 1
+ *             # read1_alns += 1
  *         elif d[i, 7] == 2 and d[i, 9] > read2_max:             # <<<<<<<<<<<<<<
  *             read2_max = d[i, 9]
- *             read2_alns += 1
+ *             # read2_alns += 1
  */
     }
     __pyx_L7:;
   }
 
-  /* "fnfi/c_io_funcs.pyx":292
- *             read2_alns += 1
- * 
- *     template["splitters"] = [read1_alns > 1, read2_alns > 1]             # <<<<<<<<<<<<<<
- *     template['score_mat']["splitter"] = [read1_alns - 1, read2_alns - 1]
- * 
- */
-  __pyx_t_1 = __Pyx_PyBool_FromLong((__pyx_v_read1_alns > 1)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 292, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_1);
-  __pyx_t_5 = __Pyx_PyBool_FromLong((__pyx_v_read2_alns > 1)); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 292, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_5);
-  __pyx_t_10 = PyList_New(2); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 292, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_10);
-  __Pyx_GIVEREF(__pyx_t_1);
-  PyList_SET_ITEM(__pyx_t_10, 0, __pyx_t_1);
-  __Pyx_GIVEREF(__pyx_t_5);
-  PyList_SET_ITEM(__pyx_t_10, 1, __pyx_t_5);
-  __pyx_t_1 = 0;
-  __pyx_t_5 = 0;
-  if (unlikely(PyObject_SetItem(__pyx_v_template, __pyx_n_s_splitters, __pyx_t_10) < 0)) __PYX_ERR(0, 292, __pyx_L1_error)
-  __Pyx_DECREF(__pyx_t_10); __pyx_t_10 = 0;
-
-  /* "fnfi/c_io_funcs.pyx":293
- * 
- *     template["splitters"] = [read1_alns > 1, read2_alns > 1]
- *     template['score_mat']["splitter"] = [read1_alns - 1, read2_alns - 1]             # <<<<<<<<<<<<<<
- * 
- *     ids_to_name = {v: k for k, v in template["chrom_ids"].items()}
- */
-  __pyx_t_10 = __Pyx_PyInt_From_long((__pyx_v_read1_alns - 1)); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 293, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_10);
-  __pyx_t_5 = __Pyx_PyInt_From_long((__pyx_v_read2_alns - 1)); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 293, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_5);
-  __pyx_t_1 = PyList_New(2); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 293, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_1);
-  __Pyx_GIVEREF(__pyx_t_10);
-  PyList_SET_ITEM(__pyx_t_1, 0, __pyx_t_10);
-  __Pyx_GIVEREF(__pyx_t_5);
-  PyList_SET_ITEM(__pyx_t_1, 1, __pyx_t_5);
-  __pyx_t_10 = 0;
-  __pyx_t_5 = 0;
-  __pyx_t_5 = __Pyx_PyObject_Dict_GetItem(__pyx_v_template, __pyx_n_s_score_mat); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 293, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_5);
-  if (unlikely(PyObject_SetItem(__pyx_t_5, __pyx_n_s_splitter, __pyx_t_1) < 0)) __PYX_ERR(0, 293, __pyx_L1_error)
-  __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
-  __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-
   /* "fnfi/c_io_funcs.pyx":295
- *     template['score_mat']["splitter"] = [read1_alns - 1, read2_alns - 1]
+ *     # template['score_mat']["splitter"] = [read1_alns - 1, read2_alns - 1]
  * 
  *     ids_to_name = {v: k for k, v in template["chrom_ids"].items()}             # <<<<<<<<<<<<<<
  * 
@@ -11267,7 +11174,6 @@ static __Pyx_StringTabEntry __pyx_string_tab[] = {
   {&__pyx_n_s_random, __pyx_k_random, sizeof(__pyx_k_random), 0, 0, 1, 1},
   {&__pyx_n_s_range, __pyx_k_range, sizeof(__pyx_k_range), 0, 0, 1, 1},
   {&__pyx_n_s_re, __pyx_k_re, sizeof(__pyx_k_re), 0, 0, 1, 1},
-  {&__pyx_n_s_read1_alns, __pyx_k_read1_alns, sizeof(__pyx_k_read1_alns), 0, 0, 1, 1},
   {&__pyx_n_s_read1_length, __pyx_k_read1_length, sizeof(__pyx_k_read1_length), 0, 0, 1, 1},
   {&__pyx_n_s_read1_max, __pyx_k_read1_max, sizeof(__pyx_k_read1_max), 0, 0, 1, 1},
   {&__pyx_n_s_read1_q, __pyx_k_read1_q, sizeof(__pyx_k_read1_q), 0, 0, 1, 1},
@@ -11275,7 +11181,6 @@ static __Pyx_StringTabEntry __pyx_string_tab[] = {
   {&__pyx_n_s_read1_seq, __pyx_k_read1_seq, sizeof(__pyx_k_read1_seq), 0, 0, 1, 1},
   {&__pyx_n_s_read1_set, __pyx_k_read1_set, sizeof(__pyx_k_read1_set), 0, 0, 1, 1},
   {&__pyx_n_s_read1_strand_set, __pyx_k_read1_strand_set, sizeof(__pyx_k_read1_strand_set), 0, 0, 1, 1},
-  {&__pyx_n_s_read2_alns, __pyx_k_read2_alns, sizeof(__pyx_k_read2_alns), 0, 0, 1, 1},
   {&__pyx_n_s_read2_length, __pyx_k_read2_length, sizeof(__pyx_k_read2_length), 0, 0, 1, 1},
   {&__pyx_n_s_read2_max, __pyx_k_read2_max, sizeof(__pyx_k_read2_max), 0, 0, 1, 1},
   {&__pyx_n_s_read2_q, __pyx_k_read2_q, sizeof(__pyx_k_read2_q), 0, 0, 1, 1},
@@ -11301,8 +11206,6 @@ static __Pyx_StringTabEntry __pyx_string_tab[] = {
   {&__pyx_n_s_size, __pyx_k_size, sizeof(__pyx_k_size), 0, 0, 1, 1},
   {&__pyx_n_s_sorted, __pyx_k_sorted, sizeof(__pyx_k_sorted), 0, 0, 1, 1},
   {&__pyx_n_s_split, __pyx_k_split, sizeof(__pyx_k_split), 0, 0, 1, 1},
-  {&__pyx_n_s_splitter, __pyx_k_splitter, sizeof(__pyx_k_splitter), 0, 0, 1, 1},
-  {&__pyx_n_s_splitters, __pyx_k_splitters, sizeof(__pyx_k_splitters), 0, 0, 1, 1},
   {&__pyx_n_s_start, __pyx_k_start, sizeof(__pyx_k_start), 0, 0, 1, 1},
   {&__pyx_n_s_strip, __pyx_k_strip, sizeof(__pyx_k_strip), 0, 0, 1, 1},
   {&__pyx_n_s_t, __pyx_k_t, sizeof(__pyx_k_t), 0, 0, 1, 1},
@@ -11571,10 +11474,10 @@ static int __Pyx_InitCachedConstants(void) {
  * 
  *     cdef int j = 0
  */
-  __pyx_tuple__33 = PyTuple_Pack(15, __pyx_n_s_template, __pyx_n_s_j, __pyx_n_s_actual_rows, __pyx_n_s_d_2, __pyx_n_s_read1_max, __pyx_n_s_read2_max, __pyx_n_s_i, __pyx_n_s_read1_alns, __pyx_n_s_read2_alns, __pyx_n_s_ids_to_name, __pyx_n_s_locs, __pyx_n_s_m, __pyx_n_s_loc, __pyx_n_s_k, __pyx_n_s_v); if (unlikely(!__pyx_tuple__33)) __PYX_ERR(0, 268, __pyx_L1_error)
+  __pyx_tuple__33 = PyTuple_Pack(13, __pyx_n_s_template, __pyx_n_s_j, __pyx_n_s_actual_rows, __pyx_n_s_d_2, __pyx_n_s_read1_max, __pyx_n_s_read2_max, __pyx_n_s_i, __pyx_n_s_ids_to_name, __pyx_n_s_locs, __pyx_n_s_m, __pyx_n_s_loc, __pyx_n_s_k, __pyx_n_s_v); if (unlikely(!__pyx_tuple__33)) __PYX_ERR(0, 268, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_tuple__33);
   __Pyx_GIVEREF(__pyx_tuple__33);
-  __pyx_codeobj__34 = (PyObject*)__Pyx_PyCode_New(1, 0, 15, 0, CO_OPTIMIZED|CO_NEWLOCALS, __pyx_empty_bytes, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_tuple__33, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_kp_s_fnfi_c_io_funcs_pyx, __pyx_n_s_choose_supplementary, 268, __pyx_empty_bytes); if (unlikely(!__pyx_codeobj__34)) __PYX_ERR(0, 268, __pyx_L1_error)
+  __pyx_codeobj__34 = (PyObject*)__Pyx_PyCode_New(1, 0, 13, 0, CO_OPTIMIZED|CO_NEWLOCALS, __pyx_empty_bytes, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_tuple__33, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_kp_s_fnfi_c_io_funcs_pyx, __pyx_n_s_choose_supplementary, 268, __pyx_empty_bytes); if (unlikely(!__pyx_codeobj__34)) __PYX_ERR(0, 268, __pyx_L1_error)
 
   /* "fnfi/c_io_funcs.pyx":325
  *     #     quit()

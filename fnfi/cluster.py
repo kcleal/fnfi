@@ -11,7 +11,6 @@ import networkx as nx
 import numpy as np
 import pysam
 import sys
-import difflib
 import pandas as pd
 import array
 import caller
@@ -33,7 +32,7 @@ except NameError:
 class Alignment(object):
     """Picklable struct to hold the contents of pysam alignment"""
     __slots__ = ["reference_end", "cigar", "pos", "flag", "rname", "qname", "rnext", "pnext", "seq", "cigartuples",
-                 "query_qualities"]
+                 "query_qualities", "has_SA"]
 
     def __init__(self, a):
         self.reference_end = a.reference_end
@@ -47,6 +46,7 @@ class Alignment(object):
         self.seq = a.seq
         self.cigartuples = self.cigar
         self.query_qualities = a.query_qualities
+        self.has_SA = a.has_tag("SA")
 
 
 class Scoper(object):
@@ -278,12 +278,13 @@ def make_nuclei(g, _debug=False):
     nuclei. The reason for doing this is to help seperate overlapping events, with some events having soft-clips but
     other events having no soft-clips. If the non-soft-clipped events are not nucleated then they will be dropped.
     :param g:
+    :param _debug: if True additional info is printed to stderr
     :return:
     """
     sub_grp = nx.Graph()
     look_for = ["y", "g"]
     edge_colors = defaultdict(list)
-    # t = ('simulated_reads.intra.0.2-id2_A_chr21:46696380_B_chr21:46697291-69', 83, 46697201)
+    # t = ('HISEQ2500-10:539:CAV68ANXX:7:1307:1309:31283', 2145, 114317)
     for e in g.edges(data=True):
         # if e[0] == t or e[1] == t:
         #     echo("edge", e)
@@ -403,7 +404,7 @@ def blockmodel(G, partitions):
     return M
 
 
-def make_block_model(g, insert_size, insert_stdev, read_length, _debug=False):
+def make_block_model(g, insert_size, insert_stdev, read_length, _debug=[]):
     """
     Make a block model representation of the graph. The nodes in the block model correspond to each side of a SV. The
     edge attributes give the different types of support between nodes i.e. number of split reads, soft-clips, pairs.
@@ -421,14 +422,30 @@ def make_block_model(g, insert_size, insert_stdev, read_length, _debug=False):
     :param:
     :return: Block model, nodes correspond to break sites, edges give connectivity information with other break sites
     """
-    # Make the inner block-model
-    sub_grp = make_nuclei(g, _debug)
+    show_details = False
+    if _debug:
+        for item in _debug:
+            if g.has_node(item):
+                item_name = item[0]
+                echo("target node in g", item)
+                for u, v, dta in g.edges(data=True):
+                    if u[0] == item_name or v[0] == item_name:
+                        echo(u, v, dta)
+                echo("components", len(list(nx.connected_component_subgraphs(g))))
 
-    sub_grp_cc = list(nx.connected_component_subgraphs(sub_grp))
+    # Make the inner block-model
+    sub_grp = make_nuclei(g, show_details)
 
     if _debug:
-        echo("sub_grp nodes", len(sub_grp.nodes()))
-        echo("sub_grp components", len(sub_grp_cc))
+        for item in _debug:
+            if sub_grp.has_node(item):
+                item_name = item[0]
+                echo("target node in sub_grp", item)
+                for u, v, dta in g.edges(data=True):
+                    if u[0] == item_name or v[0] == item_name:
+                        echo(u, v, dta)
+
+    sub_grp_cc = list(nx.connected_component_subgraphs(sub_grp))
 
     # Drop any reads that are'nt in a connected component
     intersection = g.subgraph(sub_grp.nodes())
@@ -479,8 +496,6 @@ def block_model_evidence(bm, parent_graph):
 
         for neighbor_set in bm[node_set]:
             read_names_b = set([i[0] for i in neighbor_set])
-
-            # total_reads = len(node_set) + len(neighbor_set)
             pe_support = len(read_names_a.intersection(read_names_b))
 
             # Reads connected with black edges give soft-clip support at each side
@@ -488,24 +503,11 @@ def block_model_evidence(bm, parent_graph):
             black_connected = [(j[0], j[1]) for j in [i for i in sub.edges(data=True) if i[2]['c'] == 'b']]
             black_nodes = len(set(item for sublist in black_connected for item in sublist))
 
-            supplementary = len([i[1] for i in sub.nodes() if i[1] & 2048])
+            supplementary = len(set([i[0] for i in sub.nodes() if i[1] & 2048]))
 
-            res = {# "total_reads": total_reads,
-                   "pe": pe_support,
+            res = {"pe": pe_support,
                    "sc": black_nodes,  # Todo this is overlapping soft-clips not number of soft-clips
                    "supp": supplementary}
-
-            # if ('simulated_reads.intra.0.2-id2_A_chr21:46696380_B_chr21:46697291-69', 83, 46697201) in node_set:
-            #     echo("nodes set", node_set)
-            #     echo("neigh", neighbor_set)
-            #     echo("union", node_set.union(neighbor_set))
-            #     echo(sub.nodes())
-            #     ec = []
-            #     for i in sub.edges(data=True):
-            #         ec.append(i[2]['c'])
-            #     echo(Counter(ec))
-            #     echo(res)
-            #     quit()
 
             bm[node_set][neighbor_set]["result"] = res
             seen.add(neighbor_set)
@@ -528,7 +530,11 @@ def get_reads(infile, sub_graph, max_dist, rl, read_buffer):
             rd[node[0]][(node[1], node[2])] = read_buffer[node]
             c += 1
         else:
-            coords.append(dta['p'])
+            try:
+                coords.append(dta['p'])
+            except KeyError:
+                echo("Warning: 'p' key not found on node")
+                pass
 
     if len(coords) > 0:  # fetch any reads that were'nt in the buffer
         coords = itertools.groupby(sorted(set(coords), key=lambda x: (x[0], x[1])), key=lambda x: x[0])  # Groupby chrom
@@ -617,9 +623,19 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=(), w
                    data_io.intersecter(tree, infile.get_reference_name(r.rnext), r.pnext - 150, r.pnext + 150):
                     ol_include = True
 
+                    # Only add node if it is a split read
+                    if r.has_SA:
+                        G.add_node(n1, {"p": (r.rname, r.pos)})
+
             # Keeps all singletons that dont overlap --include, even if no 'black' or 'grey' edges.
             if not ol_include:
                 G.add_node(n1, {"p": (r.rname, r.pos)})
+            # if r.qname == "HISEQ2500-10:539:CAV68ANXX:7:1307:1309:31283":
+            #     echo("Node", n1, G.has_node(n1))
+            #     echo(ol_include, r.has_SA)
+
+            # targets = {('HISEQ2500-10:539:CAV68ANXX:7:1307:1309:31283', 113, 113565),
+            #            ('HISEQ2500-10:539:CAV68ANXX:7:1307:1309:31283', 2145, 114317)}
 
             gg = 0
             bb = 0
@@ -633,21 +649,20 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=(), w
                 all_flags[t.qname].add((t.flag, t.pos))
 
                 # Four types of edges; black means definite match with overlapping soft-clips. Grey means similar
-                # rearrangement with start and end co-ords on reference genome.
-                # Yellow means supplementary matches a primary
-                # read; these edges need to be checked when both primary reads are available
+                # rearrangement with start and end coords on reference genome.
+                # Yellow means supplementary (with no good soft-clip) matches a primary
                 # Finally white edge means a read1 to read2 edge
                 if ol:  # and not sup_edge:
+
                     identity, prob_same = align_match(r, t)
-                    # if r.qname == "simulated_reads.intra.0.2-id2_A_chr21:46696380_B_chr21:46697291-69":
-                    #     echo("black edge", identity, prob_same, "r", n1, n2)
-                    # if t.qname == "simulated_reads.intra.0.2-id2_A_chr21:46696380_B_chr21:46697291-69":
-                    #     echo("black edge", identity, prob_same, "t", n1, n2)
                     if prob_same > 0.01:  # Add a black edge
+                        G.add_node(n2, {"p": (t.rname, t.pos)})
                         G.add_edge(n1, n2, {"c": "b"})
+                        # if n1 in targets:
+                        #     echo("adding black")
                         black_edges += 1
                         bb += 1
-                        if bb > 6:
+                        if bb > 6:  # Stop the graph getting unnecessarily dense
                             break
                     continue
 
@@ -657,21 +672,33 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=(), w
 
                 if abs(r.pnext - t.pnext) < max_dist:  # Other ends are within clustering distance
                     # Skip if read is not soley within --include regions
-                    if ol_include and tree is not None:
-                        continue
+                    #if ol_include and tree is not None:
+                    #    continue
+                    add_grey = False
+                    if not ol_include:
+                        # Add a grey edge if they are both discordant reads
+                        if not n1[1] & 2 and not n2[1] & 2:
+                            add_grey = True
+                    # elif r.has_SA and t.has_SA:
+                    #     add_grey = True
 
-                    # Add a grey edge if they are both discordant reads
-                    if not n1[1] & 2 and not n2[1] & 2:
+                    if add_grey:
+                        G.add_node(n2, {"p": (t.rname, t.pos)})
                         G.add_edge(n1, n2, {"c": "g"})
+                        # if n1 in targets:
+                        #     echo("adding grey")
                         gg += 1
                         grey_added += 1
                         if gg > 6:
-                            break  # Stop the graph getting unnecessarily dense
+                            break
                         continue
 
                 elif sup_edge:
                     # Add a yellow edge
+                    G.add_node(n2, {"p": (t.rname, t.pos)})
                     G.add_edge(n1, n2, {"c": "y"})
+                    # if n1 in targets:
+                    #     echo("adding yellow")
                     yy += 1
                     if yy > 6:
                         break
@@ -680,8 +707,9 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=(), w
     # Add read-pair information to the graph, link regions together
     new_edges = []
     for g in nx.connected_component_subgraphs(G, copy=False):
-
-        # Add white edges between read-pairs which are NOT in the subgraph
+        # if g.has_node(('HISEQ2500-10:539:CAV68ANXX:7:1307:1309:31283', 113, 113565)) or g.has_node(('HISEQ2500-10:539:CAV68ANXX:7:1307:1309:31283', 2145, 114317)):
+        #     echo("has nodes", len(g.nodes()), [(n, all_flags[n]) for n, f, p in g.nodes()])
+        # Add white edges between read-pairs which are NOT joined by edges in the subgraph
         # all_flags: rname: (flag, pos)
         nodes_to_check = [(n, all_flags[n]) for n, f, p in g.nodes()]
         for n, flags in nodes_to_check:  # 2 reads, or 3 if supplementary read
@@ -689,10 +717,11 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=(), w
             for f1, f2 in itertools.combinations_with_replacement(flags, 2):  # Check all edges within template
                 u, v = (n, f1[0], f1[1]), (n, f2[0], f2[1])
                 has_v, has_u = g.has_node(v), g.has_node(u)
-                # if g.has_node(('simulated_reads.intra.0.2-id2_A_chr21:46696380_B_chr21:46697291-69', 2145, 46696345)):
+                # if n == "HISEQ2500-10:539:CAV68ANXX:7:1307:1309:31283":
                 #     echo(has_u, has_v, has_u != has_v, u, v)
                 # Only add an edge if either u or v is missing, not if both (or neither) missing
                 if has_u != has_v:  # XOR
+
                     new_edges.append((u, v, {"c": "w"}))
 
     # Regroup based on white edges (link together read-pairs)
@@ -1007,28 +1036,29 @@ def get_regions_windows(args, unique_file_id, infile, max_dist, tree, delete=Tru
     """
     position_map, cluster_map = knn_cluster(args["include"], infile, max_dist)
 
-    with open("rmap.txt", "w")as rm:
-        for ck, u, v in cluster_map.keys():
-            rm.write("{}\t{}\t{}\tu\n".format(*u))
-            rm.write("{}\t{}\t{}\tv\n".format(*v))
-
-    target = None  # "simulated_reads.intra.0.2-id7_A_chr21:46699155_B_chr21:46696339-215"
-    tk = None
+    target = None  # "HISEQ2500-10:541:CATW5ANXX:6:2113:11913:39334"
+    node_targets = set([])
     for k, v in position_map.items():
         for n, f, p in v:
             if n == target:
-                echo(k, n)
-                tk = k
+                echo("Cluster edge", k, n)
+                node_targets.add((n, f, p))
 
     cluster_map = analyse_connectivity(cluster_map)
-    regions_depth = get_region_depth(cluster_map, args["sv_aligns"], args["dest"], unique_file_id, pad=10000, delete=delete)
+    regions_depth = get_region_depth(cluster_map, args["sv_aligns"], args["dest"], unique_file_id, pad=10000,
+                                     delete=delete)
     cluster_map, position_map = filter_high_cov(cluster_map, position_map, regions_depth, tree, args["max_cov"])
 
     for k, v in position_map.items():
         for n, f, p in v:
             if n == target:
                 echo("get_region_windows still here", k, (n, f, p))
-    return cluster_map, position_map, regions_depth, tk
+
+    if len(node_targets) == 0:
+        node_targets = []
+    else:
+        echo("node targets", node_targets)
+    return cluster_map, position_map, regions_depth, node_targets
 
 
 def get_component_from_seed(G, seed_nodes):
@@ -1060,174 +1090,205 @@ def filter_potential(input_events, tree):
             i["contig"] = None
 
         # Remove events for which both ends are in --include but not contig was found
-        if (data_io.intersecter(tree, i["chrA"], i["posA"], i["posA"] + 1) and
-            data_io.intersecter(tree, i["chrB"], i["posB"], i["posB"] + 1)) and i["contig"] is None:
-            continue
+        posA_intersects = data_io.intersecter(tree, i["chrA"], i["posA"], i["posA"] + 1)
+        posB_intersects = data_io.intersecter(tree, i["chrB"], i["posB"], i["posB"] + 1)
+        if (posA_intersects and posB_intersects) and i["contig"] is None:
+            if i["NP"] == 0:
+                continue
+
+        # Remove events for which neither end is in --include (if --include provided)
+        if tree:
+            if not posA_intersects and not posB_intersects:
+                continue
 
         potential.append(i)
     return potential
 
 
-def merge_events(potential, max_dist, tree, try_rev=False):
+def merge_events(potential, max_dist, tree, seen, try_rev=False, pick_best=False):
 
     if len(potential) <= 1:
-        return potential
+        return potential, seen
 
     G = nx.Graph()
-    seen = set([])  # Tested edges
-    printy = False
 
-    for i in range(len(potential)):
-        for j in range(len(potential)):
-            ei = potential[i]
-            ej = potential[j]
+    id_to_event_index = {}  # Mapping of event_id to index
+    for idx in range(len(potential)):
 
-            # if ei["posA"] == 43782665 or ej["posA"] == 43782665 or ei["posB"] == 43782665 or ej["posB"] == 43782665:
-            #     printy = True
+        ei = potential[idx]
+        i_id = ei["event_id"]
+        id_to_event_index[i_id] = idx
 
-            if i == j or (i, j) in seen or (j, i) in seen:
+        if ei["posB"] == 46696903:
+            echo("ei in merge_events", ei)
+
+        for jdx in range(len(potential)):
+
+            ej = potential[jdx]
+            j_id = ej["event_id"]
+            if i_id == j_id or (i_id, j_id) in seen or (j_id, i_id) in seen:
                 continue
 
-            seen.add((i, j))
-
-            ei = potential[i]
-            ej = potential[j]
+            seen.add((i_id, j_id))
 
             # Check if events point to the same loci
+            loci_similar = False
             loci_same = False
             if ei["chrA"] == ej["chrA"]:  # Try chrA matches chrA
-                if abs(ei["posA"] - ej["posA"]) < max_dist:
+
+                dist1 = abs(ei["posA"] - ej["posA"])
+                if dist1 < max_dist:
                     if ei["chrB"] == ej["chrB"]:
-                        if abs(ei["posB"] - ej["posB"]) < max_dist:
+
+                        dist2 = abs(ei["posB"] - ej["posB"])
+                        if dist2 < max_dist:
+                            loci_similar = True
+                        if dist1 < 5 and dist2 < 5:
                             loci_same = True
-            if not loci_same:  # Try chrA matches chrB
+
+            if not loci_similar:  # Try chrA matches chrB
                 if ei["chrA"] == ej["chrB"]:
-                    if abs(ei["posA"] - ej["posB"]) < max_dist:
+                    dist1 = abs(ei["posA"] - ej["posB"])
+                    if dist1 < max_dist:
                         if ei["chrB"] == ej["chrA"]:
-                            if abs(ei["posB"] - ej["posA"]) < max_dist:
+                            dist2 = abs(ei["posB"] - ej["posA"])
+                            if dist2 < max_dist:
+                                loci_similar = True
+                            if dist1 < 5 and dist2 < 5:
                                 loci_same = True
+
             if "contig" in ei and "contig" in ej:
                 ci, cj = str(ei["contig"]).upper(), str(ej["contig"]).upper()
             else:
                 continue
 
-            if loci_same:
-                if ci != "None" and len(ci) > 0 and cj != "None" and len(cj) > 0:  # Both have contigs
+            # Check if contigs match
+            if loci_similar:
+                # Both have contigs and map to about the same location
+                if ci != "None" and len(ci) > 0 and cj != "None" and len(cj) > 0 and loci_same:
+
+                    # Each breakpoint can have a different assembly, only check for match if contigs overlap
                     idt = assembler.check_contig_match(ci, cj)
                     if idt == 1:
-                        G.add_edge(i, j)
+                        G.add_edge(i_id, j_id)
+
                     elif try_rev:
-                        if assembler.check_contig_match(ci, c_io_funcs.reverse_complement(cj, len(cj))) == 1:
-                            G.add_edge(i, j)
-                if printy:
-                    echo("idt", idt)
-                # Only merge loci if they are not within --include regions
+                        rc_ej = str(ej["contig_rev"])
+                        assembler.check_contig_match(ci, rc_ej)
+                        if assembler.check_contig_match(ci, rc_ej) == 1:
+                            G.add_edge(i_id, j_id)
+
+                # Only merge loci if they are not both within --include regions
                 elif not (data_io.intersecter(tree, ei["chrA"], ei["posA"], ei["posA"] + 1) and
                           data_io.intersecter(tree, ei["chrB"], ei["posB"], ei["posB"] + 1)):
-                    G.add_edge(i, j)
+                    G.add_edge(i_id, j_id)
 
     found = []
-    for i in range(len(potential)):  # Add singletons, non-merged
-        if not G.has_node(i):
-            found.append(potential[i])
-            if printy:
-                echo("1", potential[i])
+    for item in potential:  # Add singletons, non-merged
+        if not G.has_node(item["event_id"]):
+            found.append(item)
+            # if item["event_id"] == 2556:
+            #     echo("found a singleton non-merged")
 
     for grp in nx.connected_component_subgraphs(G):
-        c = [potential[n] for n in grp.nodes()]
-        if printy:
-            echo(grp.nodes())
+
+        c = [potential[id_to_event_index[n]] for n in grp.nodes()]
+
+        # if 2556 in grp.nodes():
+        #     echo("component nodes", grp.nodes())
+        #     echo("merging with:")
+        #     for item in c:
+        #         echo("{}:{} {}:{}".format(item["chrA"], item["posA"], item["chrB"], item["posB"]))
+
         best = sorted(c, key=lambda x: sum([x["pe"], x["supp"]]), reverse=True)
         w0 = best[0]["pe"] + best[0]["supp"]  # Weighting for base result
-        for k in range(1, len(best)):
-            for t in ["pe", "supp", "sc", "SP", "block_edge", "joinA", "joinB"]:  # Sum these
-                best[0][t] += best[k][t]
 
-            if best[k]["maxASsupp"] > best[0]["maxASsupp"]:
-                best[0]["maxASsupp"] = best[k]["maxASsupp"]
+        if not pick_best:
+            for k in range(1, len(best)):
 
-            for t in ["DN", "MAPQsupp", "MAPQpri", "DApri", "DAsupp", "DP", "NMpri", "NMsupp"]:  # Average these
-                w = best[k]["pe"] + best[k]["supp"]
-                denom = w0 + w
-                if denom == 0:
-                    weighted_av = 0
-                else:
-                    weighted_av = ((best[0][t] * w0) + (best[k][t] * w)) / denom
-                best[0][t] = weighted_av
-            w0 = best[0]["pe"] + best[0]["supp"]
+                # Sum these
+                for t in ["pe", "supp", "sc", "NP", "block_edge", "joinA", "joinB"]:
+                    best[0][t] += best[k][t]
+
+                if best[k]["maxASsupp"] > best[0]["maxASsupp"]:
+                    best[0]["maxASsupp"] = best[k]["maxASsupp"]
+
+                # Average these
+                for t in ["DN", "MAPQsupp", "MAPQpri", "DApri", "DAsupp", "DP", "NMpri", "NMsupp"]:
+                    w = best[k]["pe"] + best[k]["supp"]
+                    denom = w0 + w
+                    if denom == 0:
+                        weighted_av = 0
+                    else:
+                        weighted_av = ((best[0][t] * w0) + (best[k][t] * w)) / denom
+                    best[0][t] = weighted_av
+                w0 = best[0]["pe"] + best[0]["supp"]
         found.append(best[0])
-        if printy:
-            echo(best[0])
-    return found
+
+    return found, seen
 
 
-def get_prelim_events(G, read_buffer, cluster_map, positions_map, infile, args, max_dist, regions, regions_depth, approx_rl, _debug_k):
+def get_prelim_events(G, read_buffer, cluster_map, positions_map, infile, args, max_dist, regions, regions_depth,
+                      approx_rl, _debug_k):
 
     # Go through edges in cluster map and make calls on block-model edges/nodes
     # Then merge all events to prevent duplication
 
     block_edge_events = []
+    event_id = 0
+    edges_merge_tested = set([])
     for c_edge in cluster_map.keys():
-        printy = False
-        if c_edge == _debug_k:
-            echo("here")
-            printy = True
-        # if c_edge == ((19, 19), ('chr17', 113572, 114777), ('chr17', 115171, 116903)):
-        #     printy = True
-        #     echo("here2")
+
         seed_reads = positions_map[c_edge]
-        grp = get_component_from_seed(G, seed_reads)
+        big_grp = get_component_from_seed(G, seed_reads)
 
-        # Could add a step to check for region-spanning reads
+        # big_grp is not necessarily connected
+        for grp in nx.connected_component_subgraphs(big_grp):
 
-        reads = get_reads(infile, grp, max_dist, approx_rl, read_buffer)
-        bm = make_block_model(grp, args["insert_median"], args["insert_stdev"], approx_rl, _debug=printy)
+            reads = get_reads(infile, grp, max_dist, approx_rl, read_buffer)
 
-        if printy:
-            echo("get_prelim_events")
-            echo("seeds", seed_reads)
-            echo("grp len", len(grp.nodes()))
-            echo("grp nodes:", grp.nodes())
-            # quit()
-            echo("reads collected", len(reads))
-            echo("bm nodes", len(bm.nodes()))
-        if len(bm.nodes()) == 0:
-            continue
+            bm = make_block_model(grp, args["insert_median"], args["insert_stdev"], approx_rl, _debug=_debug_k)
 
-        bm = block_model_evidence(bm, grp)  # Annotate block model with evidence
-        potential_events = []
-        for event in caller.call_from_block_model(bm, grp, reads, infile, args["clip_length"],
-                                                  args["insert_median"], args["insert_stdev"], printy):
+            for bmn in bm.nodes():
 
-            if event:
-                if printy:
-                    item = event
-                    echo("-->", "{}:{}".format(item["chrA"], item["posA"]), "{}:{}".format(item["chrB"], item["posB"]))
+                if any(i in bmn for i in _debug_k):
+                    echo("read in bmn", len(bmn), len(bm.nodes()), len(bm.edges()))
 
-                potential_events.append(event)
+            if len(bm.nodes()) == 0:
+                continue
 
-                if c_edge == _debug_k or printy:
-                    item = event
-                    if "contig" in item and "posB" in item:
-                        echo(event)
-                        echo("output event!", "{}:{}".format(item["chrA"], item["posA"]), "{}:{}".format(item["chrB"], item["posB"]), item["contig"])
+            # Annotate block model with evidence
+            bm = block_model_evidence(bm, grp)
 
-        potential_events = filter_potential(potential_events, regions)
-        potential_events = merge_events(potential_events, max_dist, regions)
+            potential_events = []
+            for event in caller.call_from_block_model(bm, grp, reads, infile, args["clip_length"],
+                                                      args["insert_median"], args["insert_stdev"], _debug_k):
+                if event:
+                    event["event_id"] = event_id
+                    potential_events.append(event)
+                    event_id += 1
 
-        if printy:
-            echo("merged block-nodes")
-            for item in potential_events:
-                echo("--2>", "{}:{}".format(item["chrA"], item["posA"]), "{}:{}".format(item["chrB"], item["posB"]), item["contig"])
-        block_edge_events += potential_events
+            potential_events = filter_potential(potential_events, regions)
 
-    # Perform a final merge across block nodes
+            tested_edges = set([])
+            potential_events, tested_edges = merge_events(potential_events, max_dist, regions, tested_edges, try_rev=False)
 
-    merged = merge_events(block_edge_events, max_dist, regions, try_rev=True)
+            edges_merge_tested = edges_merge_tested.union(tested_edges)
+            block_edge_events += potential_events
+
+    # Perform a final merge across block nodes that haven't already been tested
+    # Pick best=True prevents adding up of pe/supp, instead the best result is chosen
+    merged, _ = merge_events(block_edge_events, max_dist, regions, edges_merge_tested, try_rev=True, pick_best=True)
+
     if merged:
         for event in merged:
-            if event["posA"] == 46699837 or event["posB"] == 46699837:
-                echo("pe", event)
+            try:
+                if event["posA"] == 46699837 or event["posB"] == 46699837:
+                    echo("pe", event)
+            except TypeError:
+                echo(len(event))
+                echo(event)
+                quit()
             # Collect coverage information
             event_string = caller.get_raw_cov_information(event, regions, cluster_map[c_edge], regions_depth)
             if event_string:
@@ -1248,6 +1309,11 @@ def cluster_reads(args):
     click.echo("Input file is {}, (.{} format). {} processes".format(args["sv_aligns"], kind, args["procs"]), err=True)
     infile = pysam.AlignmentFile(args["sv_aligns"], opts[kind])
 
+    if "insert_median" not in args and "I" in args:
+        im, istd = map(float, args["I"].split(","))
+        args["insert_median"] = im
+        args["insert_stdev"] = istd
+
     max_dist = int(args["insert_median"] + (5 * args["insert_stdev"]))  # > distance reads drop out of clustering scope
     click.echo("Maximum clustering distance is {}".format(max_dist), err=True)
 
@@ -1259,8 +1325,8 @@ def cluster_reads(args):
         outfile = open(args["svs_out"], "w")
 
     head = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "cipos95A", "cipos95B",
-            "DP", "DApri", "DN", "NMpri", "SP", "DAsup",
-            "NMsup", "maxASsup", "contig", "pe", "supp", "sc", "block_edge", "MAPQpri", "MAPQsup", "raw_reads_10kb",
+            "DP", "DApri", "DN", "NMpri", "NP", "DAsup",
+            "NMsup", "maxASsup", "contig", "contig2", "pe", "supp", "sc", "block_edge", "MAPQpri", "MAPQsup", "raw_reads_10kb",
             "kind", "connectivity", "linked"]  # Todo add strandadness
 
     unique_file_id = str(uuid.uuid4())
@@ -1286,12 +1352,6 @@ def cluster_reads(args):
     prelim_ev = get_prelim_events(G, read_buffer, cluster_map, positions_map, infile, args, max_dist, regions,
                                   regions_depth, approx_rl, _debug_k)
 
-    # temp = "{}/callstemp.{}.csv".format(args["dest"], unique_file_id)
-    # with open(temp, "r") as call_t:
-    #     for event in prelim_ev:
-    #         call_t.write(event)
-    #
-    # os.remove(temp)
     c = 0
     with outfile:
         outfile.write("\t".join(head) + "\n")
@@ -1299,5 +1359,7 @@ def cluster_reads(args):
             outfile.write(event)
             c += 1
 
-    click.echo("call-events complete, n={}, {} h:m:s".format(c, str(datetime.timedelta(seconds=int(time.time() - t0)))),
+    click.echo("call-events {} complete, n={}, {} h:m:s".format(args["sv_aligns"],
+                                                                c,
+                                                                str(datetime.timedelta(seconds=int(time.time() - t0)))),
                err=True)

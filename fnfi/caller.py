@@ -11,14 +11,15 @@ def echo(*args):
 
 
 def get_tuple(j):
-    # Need (3 or 5 join, soft-clip length, chromosome, break point position)
+    # Get breakpoint info from contig. Need (3 or 5 join, read names, chromosome, break point position, soft-clipped)
     return [(5 if j["left_clips"] > j["right_clips"] else 3,
             j["read_names"],
             j["bamrname"],
-            j["ref_start"] if j["left_clips"] > j["right_clips"] else j["ref_end"])]
+            j["ref_start"] if j["left_clips"] > j["right_clips"] else j["ref_end"],
+            j["contig"][0].islower() or j["contig"][-1].islower())]
 
 
-def guess_break_point(read, bam, insert_size, insert_stdev):
+def guess_break_point(read, bam):
 
     # If the read is non-discordant and no clip is present, skip
 
@@ -26,25 +27,29 @@ def guess_break_point(read, bam, insert_size, insert_stdev):
         return []
 
     # Sometimes a clip may be present, use this as a break point if available
-    cl = []  # Get the biggest clipped portion of the read-pair to find the break-point
-    if read.cigartuples[0][0] == 4 or read.cigartuples[0][0] == 5:  # Left clip
-        cl.append((5, read.qname, bam.get_reference_name(read.rname), read.pos))
+    left = 0
+    right = 0
+    if read.cigartuples[0][0] == 4 or read.cigartuples[0][0] == 5:  # Left soft or hard-clip
+        left = read.cigartuples[0][1]
     if read.cigartuples[-1][0] == 4 or read.cigartuples[-1][0] == 5:
-        cl.append((3, read.qname, bam.get_reference_name(read.rname), read.reference_end))
-    if len(cl) > 0:
-        return sorted(cl, key=lambda x: x[1])[-1]
+        right = read.cigartuples[-1][0]
+    if left > 0 or right > 0:
+        if left > right:
+            return 5, read.qname, bam.get_reference_name(read.rname), read.pos, True
+        else:
+            return 3, read.qname, bam.get_reference_name(read.rname), read.reference_end, True
     else:
         # Breakpoint position is beyond the end of the last read
         if read.flag & 16:  # Read on reverse strand guess to the left
-            p = read.pos  # - (insert_size / 2) + insert_stdev
+            p = read.pos
             t = 5
         else:  # Guess right
-            p = read.reference_end  # + (insert_size / 2) - insert_stdev
+            p = read.reference_end
             t = 3
-        return t, read.qname, bam.get_reference_name(read.rname), int(p)
+        return t, read.qname, bam.get_reference_name(read.rname), int(p), False
 
 
-def process_node_set(node_set, all_reads, bam, insert_size, insert_stdev):
+def process_node_set(node_set, all_reads, bam):
 
     break_points = {}
     seen = set([])
@@ -54,7 +59,7 @@ def process_node_set(node_set, all_reads, bam, insert_size, insert_stdev):
         seen.add(n)  # Seen template
         for (f, p) in all_reads[n].keys():
             aln = all_reads[n][(f, p)]
-            guessed = guess_break_point(aln, bam, insert_size, insert_stdev)
+            guessed = guess_break_point(aln, bam)
             if len(guessed) > 0:
                 break_points[(n, f, p)] = guessed
 
@@ -111,11 +116,11 @@ def cluster_by_distance(bpt, t):
     if len(current) > 0:
         clst.append(current)
 
-    if len(clst) > 2:
-        clst = sorted(clst, key=lambda x: len(x))[-2:]  # Choose largest 2
+    #if len(clst) > 2:
+    #    clst = sorted(clst, key=lambda x: len(x))[-2:]  # Choose largest 2
 
-    assert len(clst) <= 2
-    return list(map(dict, clst))
+    #assert len(clst) <= 2
+    return [dict(i) for i in clst]
 
 
 def separate_mixed(break_points_dict, thresh=500):
@@ -133,21 +138,43 @@ def separate_mixed(break_points_dict, thresh=500):
         if len(clst) == 2:
             c1, c2 = clst
 
-        else:  # Try seperate into smaller clusters
+        else:  # Try separate into smaller clusters
             clst = cluster_by_distance(break_points, t=25)
             if len(clst) == 2:
                 c1, c2 = clst
             else:
-                c1, c2 = clst[0], {}  # Assume one cluster
 
-            # X = [[i[0], i[3]] for i in break_points]
-            # k_means = KMeans(init='k-means++', n_clusters=2, n_init=5, max_iter=20)
-            # labels = k_means.fit_predict(X)
-            # echo(labels)
-            # grp = {0: [], 1: []}
-            # for l, bp in zip(labels, break_points):
-            #     grp[l].append(bp)
-            # c1, c2 = grp[0], grp[1]
+                # Try separate using only supplementary
+                supps = set([])
+                for name, flg, pos in break_points_dict.keys():
+                    if flg & 2048:
+                        supps.add((name, bool(flg & 64)))
+                        # if name == 'HISEQ2500-10:539:CAV68ANXX:7:2107:1342:6170':
+                        #     echo((name, bool(flg & 64)))
+                # Get only reads that are split i.e. primary + supplementary pairs
+                break_points_dict = {k: v for k, v in break_points_dict.items() if (k[0], bool(k[1] & 64)) in supps}
+                break_points = break_points_dict.items()
+                # for item in break_points:
+                #     if item[0] == 'HISEQ2500-10:539:CAV68ANXX:7:2107:1342:6170':
+                #         echo("breakpoints", break_points)
+                #         break
+
+                if len(break_points) == 1:
+                    c1 = break_points_dict
+
+                elif len(break_points) == 2:
+                    c1, c2 = dict([break_points[0]]), dict([break_points[1]])
+
+                elif len(break_points) > 2:
+                    clst = cluster_by_distance(break_points, t=25)
+                    if len(clst) == 2:
+                        c1, c2 = clst
+                    else:
+                        c1, c2 = sorted(clst, key=lambda x: len(x))[-2:]  # Choose largest 2
+                        #c1, c2 = clst[0], {}  # Assume one cluster
+
+                else:  # Couldn't separate by supplementary
+                    c1, c2 = clst[0], {}  # Assume one cluster
 
     return c1, c2
 
@@ -156,17 +183,24 @@ def call_break_points(c1, c2):
     """
     Makes a call from a list of break points. Can take a list of break points, or one merged cluster of breaks.
     Outliers are dropped. Breakpoints are clustered using kmeans into sets
-    :param break_points: A 4 tuple (3 or 5 join, set([(read_name, flag)..]), chromosome, break point position)
-    :param thresh: the distance threshold to determine if clustered
+    :param c1: A 5 tuple (3 or 5 join, set([(read_name, flag)..]), chromosome, break point position,
+                          soft-clipped)
+    :param c2: Same as c1
     :return: Info dict containing a summary of the call
     """
 
     info = {}
     count = 0
     contributing_reads = set([])
-    for grp in (c1, c2):  # Todo add a soft-clip field to c1/c2 and if possible drop reads that are not softclipped
+    for grp in (c1, c2):
+
         if len(grp) == 0:
             continue  # When no c2 is found
+
+        grp2 = [i for i in grp if i[4]]
+        if len(grp2) > 0:
+            grp = grp2
+
         for i in grp:
             contributing_reads = contributing_reads.union(i[1])
 
@@ -264,21 +298,26 @@ def score_reads(read_names, all_reads):
     if len(read_names) == 0:
         return {}
 
-    # collected = []
-    data = {k: [] for k in ('DP', 'DApri', 'DN', 'NMpri', 'SP', 'DAsupp', 'NMsupp', 'maxASsupp', 'MAPQpri', 'MAPQsupp')}
+    data = {k: [] for k in ('DP', 'DApri', 'DN', 'NMpri', 'NP', 'DAsupp', 'NMsupp', 'maxASsupp', 'MAPQpri', 'MAPQsupp')}
 
+    # roi = "HISEQ2500-10:541:CATW5ANXX:6:2113:11913:39334"
+    # p = False
     for name, flag, pos in read_names:
 
+        # if name == roi:
+        #     p = True
+        #     echo(str(all_reads[name].keys()))
+        #     echo(str(all_reads[name][(flag, pos)]))
+
         read = all_reads[name][(flag, pos)]
-        # collected.append(read)
         if not read.flag & 2048:
             idf = "pri"
             for item in ["DP", "DN"]:
                 if read.has_tag(item):
                     data[item].append(float(read.get_tag(item)))
             data["MAPQpri"].append(read.mapq)
-            if read.has_tag("SP") and str(read.get_tag("SP")) == '1':
-                data["SP"].append(1)
+            if read.has_tag("NP") and float(read.get_tag("NP")) == 1:
+                data["NP"].append(1)
         else:
             idf = "supp"
             if read.has_tag("AS"):
@@ -289,10 +328,11 @@ def score_reads(read_names, all_reads):
             key = gk + idf
             if read.has_tag(gk):
                 data[key].append(float(read.get_tag(gk)))
-
+    # if p:
+    #     echo("data collected", data)
     averaged = {}
     for k, v in data.items():
-        if k == "SP":
+        if k == "NP":
             averaged[k] = len(v)
         elif k == "maxASsupp":
             if len(v) > 0:
@@ -309,22 +349,24 @@ def score_reads(read_names, all_reads):
     return averaged
 
 
-def breaks_from_one_side(node_set, reads, bam, insert_size, insert_stdev):
+def breaks_from_one_side(node_set, reads, bam):
     tup = {}
     for nn, nf, np in node_set:
-        tup[(nn, nf, np)] = guess_break_point(reads[nn][(nf, np)], bam, insert_size, insert_stdev)
+        tup[(nn, nf, np)] = guess_break_point(reads[nn][(nf, np)], bam)
     return pre_process_breakpoints(tup).values()  # Don't return whole dict
 
 
-def single(bm, reads, bam, assemblies, insert_size, insert_stdev, printy):
+def single(parent_graph, bm, reads, bam, insert_size, insert_stdev, _debug_k):
 
     bmnodes = list(bm.nodes())
+
     assert len(bmnodes) == 1
+    if _debug_k:
+        if any(item in bmnodes[0] for item in _debug_k):
+            echo("_debug_k in single", bmnodes[0])
 
-    ass = assemblies[bmnodes[0]]
+    break_points = process_node_set(bmnodes[0], reads, bam)  # Dict, keyed by node
 
-
-    break_points = process_node_set(bmnodes[0], reads, bam, insert_size, insert_stdev)  # Dict, keyed by node
     if break_points is None or len(break_points) == 0:
         return
 
@@ -334,8 +376,22 @@ def single(bm, reads, bam, assemblies, insert_size, insert_stdev, printy):
         return
 
     dict_a, dict_b = separate_mixed(break_points, thresh=insert_size + insert_stdev)
+
+    dict_a_subg = parent_graph.subgraph(dict_a.keys())
+    dict_b_subg = parent_graph.subgraph(dict_b.keys())
+
+    assembl1 = assembler.base_assemble(dict_a_subg, reads, bam)
+    assembl2 = assembler.base_assemble(dict_b_subg, reads, bam)
+
+    roi = "HISEQ2500-10:541:CATW5ANXX:6:2113:11913:39334"
+    if roi in reads:
+        echo("roi in reads (one_node)", reads)
+        echo("assembly", assembl1)
+        echo("dict_a", dict_a)
+        echo("dict_b", dict_b)
+
     info, contrib_reads = call_break_points(dict_a.values(), dict_b.values())
-    info["linked"] = 0  # Only 1 assembly
+    info["linked"] = 0  # Only 1 region so no linkage defined
 
     info["total_reads"] = len(contrib_reads)
     both = list(dict_a.keys()) + list(dict_b.keys())
@@ -344,12 +400,19 @@ def single(bm, reads, bam, assemblies, insert_size, insert_stdev, printy):
     info['supp'] = len([1 for i in both if i[1] & 2048])
     info['sc'] = len([1 for name, flag, pos in both if "S" in reads[name][(flag, pos)].cigarstring])
     info["block_edge"] = 0
+
     info["contig"] = None
-    # if ass:
-    #     if "contig" in ass and (ass["left_clips"] > 0 or ass["right_clips"] > 0):
-    #         # Use contig to derive chrA posA
-    #         info["contig"] = ass["contig"]
-    #
+    info["contig_rev"] = None
+    info["contig2"] = None
+    info["contig2_rev"] = None
+    if assembl1:
+        if "contig" in assembl1 and (assembl1["left_clips"] > 0 or assembl1["right_clips"] > 0):
+            info["contig"] = assembl1["contig"]
+            info["contig_rev"] = assembl1["contig_rev"]
+    if assembl2:
+        if "contig" in assembl2 and (assembl2["left_clips"] > 0 or assembl2["right_clips"] > 0):
+            info["contig2"] = assembl2["contig"]
+            info["contig2_rev"] = assembl2["contig_rev"]
     #         if ass["left_clips"] > ass["right_clips"]:
     #             info["posA"] = ass["ref_start"]
     #         else:
@@ -357,39 +420,33 @@ def single(bm, reads, bam, assemblies, insert_size, insert_stdev, printy):
     #         info["chrA"] = ass["bamrname"]
 
     info.update(score_reads(bmnodes[0], reads))
-    printy = False
-    # if "contig" in info and info["contig"] is not None:
-    #     if "AAAATATAACAGACATATTACT" in info["contig"]:
-    #         printy = True
-    if printy:
-        echo("dicta")
-        for k, v in dict_a.items():
-            echo(k, v)
-        echo("dictb")
-        for k, v in dict_b.items():
-            echo(k, v)
-        echo("single bm node assembly", ass)
-        echo("single bm node info    ", info)
 
-        echo("1", "{}:{}".format(info["chrA"], info["posA"]), "{}:{}".format(info["chrB"], info["posB"]), info["contig"])
-        echo("")
+    if roi in reads:
+        echo("info", info)
+
     return info
 
 
-def one_edge(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev):
+def one_edge(parent_graph, bm, reads, bam, clip_length):
 
     assert len(bm.nodes()) == 2
     ns = list(bm.nodes())
-    as1 = assemblies[ns[0]]
-    as2 = assemblies[ns[1]]
-    # roi = "simulated_reads.intra.0.2-id14_A_chr21:46699836_B_chr21:46697397-425"
-    # if roi in reads:
-    #     echo(reads)
-    #     echo("as1", as1)
-    #     echo("as2", as2)
+
+    # assembler.base_assemble(dict_a_subg, reads, bam)
+    sub = parent_graph.subgraph(ns[0])
+    sub2 = parent_graph.subgraph(ns[1])
+    #     assemblies[node_set] = assembler.base_assemble(sub, reads, bam)
+
+    as1 = assembler.base_assemble(sub, reads, bam)  #  assemblies[ns[0]]
+    as2 = assembler.base_assemble(sub2, reads, bam)
+    roi = "HISEQ2500-10:541:CATW5ANXX:6:2113:11913:39334"
+    if roi in reads:
+        echo("roi in reads (one_edge)", reads)
+        echo("as1", as1)
+        echo("as2", as2)
 
     if as1 is None or len(as1) == 0:
-        tuple_a = breaks_from_one_side(ns[0], reads, bam, insert_size, insert_stdev)
+        tuple_a = breaks_from_one_side(ns[0], reads, bam)
     else:
         tuple_a = get_tuple(as1)  # Tuple of breakpoint information
 
@@ -397,114 +454,84 @@ def one_edge(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev)
         return None
 
     if as2 is None or len(as2) == 0:
-        tuple_b = breaks_from_one_side(ns[1], reads, bam, insert_size, insert_stdev)
+        tuple_b = breaks_from_one_side(ns[1], reads, bam)
     else:
         tuple_b = get_tuple(as2)
     if not tuple_b:
         return None
 
     info, contrib_reads = call_break_points(tuple_a, tuple_b)
-    info["linked"] = 0
 
+    info["linked"] = 0
     if as1 is not None and len(as1) > 0 and as2 is not None and len(as2) > 0:
         as1, as2 = assembler.link_pair_of_assemblies(as1, as2, clip_length)
         if as1["linked"] == 1:
             info["linked"] = 1
 
-
-
-    # if roi in reads:
-    #     echo("info", info)
-    #     echo("r", "result" in bm[ns[0]][ns[1]])
-
     if "result" not in bm[ns[0]][ns[1]]:
         return None
     info.update(bm[ns[0]][ns[1]]["result"])
     info.update(score_reads(ns[0].union(ns[1]), reads))
-    info["block_edge"] = 1
 
+    info["block_edge"] = 1
     info["contig"] = None
+    info["contig_rev"] = None
+    info["contig2"] = None
+    info["contig2_rev"] = None
+
     if as1 is not None and "contig" in as1:
         info["contig"] = as1["contig"]
-    elif as2 is not None and "contig" in as2:
-        info["contig"] = as2["contig"]
+        info["contig_rev"] = as1["contig_rev"]
 
-    # if roi in reads:
-    #     echo("{}:{}   {}:{}".format(info["chrA"], info["posA"], info["chrB"], info["posB"]))
+    if as2 is not None and "contig" in as2:
+        info["contig2"] = as2["contig"]
+        info["contig2_rev"] = as2["contig_rev"]
 
     return info
 
 
-def multi(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev):
-    # Score edges
-    edge_scores = []
-    for u, v, data in bm.edges(data=True):
-        score = data["weight"]
-        if "result" in data:
-            score = sum(data["result"].values())
-        edge_scores.append((u, v, score))
+def multi(parent_graph, bm, reads, bam, clip_length):
 
-    edge_scores = sorted(edge_scores, key=lambda k: k[2], reverse=True)
-    seen = set([])
-    for u, v, scr in edge_scores:
-        if u in seen or v in seen:
-            continue
-        # seen.add(u)
-        # seen.add(v)
+    for u, v in bm.edges():
+        rd = reads_from_bm_nodeset([u, v], reads)
         sub = bm.subgraph([u, v])
-        yield one_edge(sub, reads, bam, assemblies, clip_length, insert_size, insert_stdev)
+        yield one_edge(parent_graph, sub, rd, bam, clip_length)
 
 
-def call_from_block_model(bm_graph, parent_graph, reads, bam, clip_length, insert_size, insert_stdev, printy=False):
+def reads_from_bm_nodeset(bm_nodeset, reads):
+    qnames = set([])
+    for nd in bm_nodeset:
+        for item in nd:
+            qnames.add(item[0])
+    return {nm: reads[nm] for nm in qnames}
+
+
+def call_from_block_model(bm_graph, parent_graph, reads, bam, clip_length, insert_size, insert_stdev, _debug_k=False):
 
     # Block model is not guaranteed to be connected
     for bm in nx.connected_component_subgraphs(bm_graph):
 
-        # Try and assemble nodes in the block model
-        assemblies = {}
-        for node_set in bm.nodes():
-
-            sub = parent_graph.subgraph(node_set)
-            assemblies[node_set] = assembler.base_assemble(sub, reads, bam)
-
-            # if "simulated_reads.0.10-id277_A_chr21:46699632_B_chr17:12568030-36717" in reads:
-            #     echo("assem", assemblies)
-            #     echo(sub.nodes())
-
-            # continue
-            # if any(i[2]["c"] == "b" or i[2]["c"] == "y" for i in sub.edges(data=True)):
-            #     # assemble reads if any overlapping soft-clips
-            #     assemblies[node_set] = assembler.base_assemble(sub, reads, bam)
-            #
-            # else:
-            #     assemblies[node_set] = {}
-            #     if "simulated_reads.0.10-id270_A_chr21:46697027_B_chr17:6458938-35841" in reads:
-            #         click.echo("hi", err=True)
-            #         quit()
-        # echo(bm.edges)
-        if printy:
-            echo("Number of bm edges/nodes:", len(bm.edges()), len(bm.nodes()))
+        rds = reads_from_bm_nodeset(bm.nodes(), reads)
 
         if len(bm.edges()) > 1:
             # Break apart connected
-            for event in multi(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev):
-
+            for event in multi(parent_graph, bm, rds, bam, clip_length):
                 yield event
 
-        if len(bm.nodes()) == 1:
+        elif len(bm.nodes()) == 1:
             # Single isolated node
-            yield single(bm, reads, bam, assemblies, insert_size, insert_stdev, printy)
+            yield single(parent_graph, bm, rds, bam, insert_size, insert_stdev, _debug_k)
 
-        if len(bm.edges()) == 1:
+        elif len(bm.edges()) == 1:
             # Easy case
-            yield one_edge(bm, reads, bam, assemblies, clip_length, insert_size, insert_stdev)
+            yield one_edge(parent_graph, bm, rds, bam, clip_length)
 
 
 def call_to_string(call_info):
     # Tab delimited string, in a bedpe style
     k = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "cipos95A", "cipos95B",
-         "DP", "DApri", "DN", "NMpri", "SP", "DAsupp",
-         "NMsupp", "maxASsupp", "contig", "pe", "supp", "sc", "block_edge", "MAPQpri", "MAPQsupp", "raw_reads_10kb",
+         "DP", "DApri", "DN", "NMpri", "NP", "DAsupp",
+         "NMsupp", "maxASsupp", "contig", "contig2", "pe", "supp", "sc", "block_edge", "MAPQpri", "MAPQsupp", "raw_reads_10kb",
          "kind", "connectivity", "linked"]
 
     return "\t".join([str(call_info[ky]) if ky in call_info else str(None) for ky in k]) + "\n"
@@ -568,27 +595,21 @@ def get_raw_cov_information(r, regions, window_info, regions_depth):
             kind = "inter-regional"
 
     if switch:
-        chrA, posA, cipos95A = r["chrA"], r["posA"], r["cipos95A"]
+        chrA, posA, cipos95A, contig2 = r["chrA"], r["posA"], r["cipos95A"], r["contig2"]
         r["chrA"] = r["chrB"]
         r["posA"] = r["posB"]
         r["cipos95A"] = r["cipos95B"]
         r["chrB"] = chrA
         r["posB"] = posA
         r["cipos95B"] = cipos95A
+        #if contig2 is not None:
+        r["contig2"] = r["contig"]
+        r["contig"] = contig2
 
     reads_10kb = 0
     if kind == "hemi-regional":
-
-        # Get read coverage in raw bam file +/- 10kb around A-side
-        # echo(r["chrA"], r["posA"] - 10000, r["posA"] + 10000)
-        # import time
-        # t0 = time.time()
         reads_10kb = sum(calculate_coverage(r["chrA"], r["posA"] - 10000, r["posA"] + 10000, regions_depth))
-        # echo(reads_10kb, time.time() - t0)
-        # start = r["posA"] - 10000
-        # t0 = time.time()
-        # reads_10kb = len(list(raw_bam.fetch(r["chrA"], 0 if start < 0 else start, r["posA"] + 10000)))
-        # echo("2", reads_10kb, time.time() - t0)
+
     r["kind"] = kind
     r["raw_reads_10kb"] = reads_10kb
     r["connectivity"] = window_info["connectivity"]

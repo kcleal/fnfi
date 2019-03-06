@@ -277,20 +277,20 @@ def choose_supplementary(template):
     cdef double read2_max = 0
     cdef int i = 0
 
-    cdef int read1_alns = 0
-    cdef int read2_alns = 0
+    # cdef int read1_alns = 0
+    # cdef int read2_alns = 0
 
     for j in range(len(actual_rows)):
         i = actual_rows[j]
         if d[i, 7] == 1 and d[i, 9] > read1_max:  # Use original alignment score, not biased
             read1_max = d[i, 9]
-            read1_alns += 1
+            # read1_alns += 1
         elif d[i, 7] == 2 and d[i, 9] > read2_max:
             read2_max = d[i, 9]
-            read2_alns += 1
+            # read2_alns += 1
 
-    template["splitters"] = [read1_alns > 1, read2_alns > 1]
-    template['score_mat']["splitter"] = [read1_alns - 1, read2_alns - 1]
+    # template["splitters"] = [read1_alns > 1, read2_alns > 1]
+    # template['score_mat']["splitter"] = [read1_alns - 1, read2_alns - 1]
 
     ids_to_name = {v: k for k, v in template["chrom_ids"].items()}
 

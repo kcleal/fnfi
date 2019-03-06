@@ -4,11 +4,11 @@ are then overlapped of 'linked'.
 """
 
 import networkx as nx
-import difflib
 import numpy as np
 from collections import defaultdict
 import click
 from skbio.alignment import StripedSmithWaterman
+from c_io_funcs import reverse_complement
 
 
 def echo(*args):
@@ -295,6 +295,7 @@ def base_assemble(g, reads, bam, iid=0):
 
     rd = [reads[n[0]][(n[1], n[2])] for n in g.nodes()]
 
+    #
     # rnames = set([r.qname for r in rd])
     # roi = "simulated_reads.intra.0.2-id2_A_chr21:46696380_B_chr21:46697291-69"
     G = nx.DiGraph()
@@ -362,15 +363,10 @@ def base_assemble(g, reads, bam, iid=0):
            "ref_end": matches[-1],
            "read_names": set(read_names),
            "contig": bases,
+           "contig_rev": reverse_complement(bases.upper(), len(bases)),
            "id": iid}
 
     return res
-
-
-def rev_comp(s):
-    d = {"A": "T", "C": "G", "T": "A", "G": "C", "N": "N", "|": "|", "a": "t", "t": "a", "c": "g", "g": "c",
-         "n": "n"}
-    return "".join(d[j] for j in s if j != "|")[::-1]
 
 
 def explore_local(starting_nodes, large_component, color, upper_bound):
@@ -396,11 +392,7 @@ def explore_local(starting_nodes, large_component, color, upper_bound):
     return found
 
 
-def check_contig_match(a, b, diffs=8):
-    # matcher = difflib.SequenceMatcher(None, a, b)
-    # matching_blocks = matcher.get_matching_blocks()
-
-    # shortest = len(a) if len(a) <= len(b) else len(b)
+def check_contig_match(a, b, diffs=8, ol_length=21):
 
     query = StripedSmithWaterman(str(a), suppress_sequences=True)
     alignment = query(str(b))
@@ -413,8 +405,12 @@ def check_contig_match(a, b, diffs=8):
     extent_right = min((len(a) - qe, len(b) - ale))
     total_overhangs = extent_left + extent_right
     aln_s = alignment.optimal_alignment_score
-    expected = (qe - qs) * 2
-    diff = expected - aln_s + total_overhangs
+    expected = (qe - qs) * 2  # +2 is the score for a match
+
+    if expected < 2 * ol_length:  # Match score * Minimum clip length
+        return 0
+    diff = expected - aln_s + total_overhangs  # old diff thresh = 8
+    # diff = (expected - aln_s - total_overhangs) / expected
     if diff > diffs:  # e.g. 2 mis-matches + 2 unaligned overhanging bits
         return 0
     else:
@@ -433,36 +429,27 @@ def link_pair_of_assemblies(a, b, clip_length):
             negative_strand = True if i["strand_l"] < 0 else False
             sc_support = i["left_clips"]
 
+        if i is None:
+            a["linked"] = 0
+            return a
+
         seqs.append((i["contig"], sc_support, i["bamrname"], i["ref_start"], i["ref_end"] + 1, left_clipped,
-                     negative_strand))
+                     negative_strand, i["contig_rev"]))
 
     ainfo, binfo = seqs
-    aseq, bseq = ainfo[0], binfo[0]
+    aseq, bseq, aseq_rev, bseq_rev = ainfo[0], binfo[0], ainfo[7], binfo[7]
     if ainfo[2] == binfo[2]:  # If seqs are on the same chrom
         if ainfo[5] == binfo[5]:  # If clips are on same side, rev comp one of them
-            bseq = rev_comp(bseq)
+            bseq = bseq_rev  # rev_comp(bseq)
     else:
         if ainfo[6]:  # negative strand
-            aseq = rev_comp(aseq)
+            aseq = aseq_rev  # rev_comp(aseq)
         if binfo[6]:
-            bseq = rev_comp(bseq)
+            bseq = bseq_rev  # rev_comp(bseq)
 
     if check_contig_match(aseq.upper(), bseq.upper()) == 1:
         a["linked"] = 1
     else:
         a["linked"] = 0
-
-    # See https://docs.python.org/2/library/difflib.html
-    # m = difflib.SequenceMatcher(a=aseq.upper(), b=bseq.upper(), autojunk=None)
-    # longest = m.find_longest_match(0, len(aseq), 0, len(bseq))
-    # a_align = [i.islower() for i in aseq[longest[0]:longest[0] + longest[2]]]
-    # b_align = [i.islower() for i in bseq[longest[1]:longest[1] + longest[2]]]
-    # sc_a = sum(a_align)
-    # sc_b = sum(b_align)
-    # best_sc = max([sc_a, sc_b])
-    # a["linked"] = "weak link"
-    # a["best_sc"] = best_sc
-    # if best_sc > clip_length:  # and best_non_sc >= 5:
-    #     a["linked"] = "strong link"
 
     return a, b

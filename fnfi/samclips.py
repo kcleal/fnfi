@@ -467,21 +467,21 @@ def fixsam(template):
             aln_info_0, aln_info_1 = t[key].pop(0), t[key].pop(0)  # Remove first two items from list
         else:
             aln_info_0, aln_info_1 = t[key]
-        #print key, aln_info_0, aln_info_1
-        if rid == "1":
-            if t["splitter"][0]:
-                split = "1"
-            else:
-                split = "0"
-        elif rid == "2":
-            if t["splitter"][1]:
-                split = "1"
-            else:
-                split = "0"
+        #print key, aln_info_0, aln_info_1  # Todo no need for "splitter" field
+        # if rid == "1":
+        #     if t["splitter"][0]:
+        #         split = "1"
+        #     else:
+        #         split = "0"
+        # elif rid == "2":
+        #     if t["splitter"][1]:
+        #         split = "1"
+        #     else:
+        #         split = "0"
 
         xs = int(aln_info_1)
 
-        l += ["SP:Z:" + split,
+        l += [#"SP:Z:" + split,
               "DA:i:" + str(xs),
               "DP:Z:" + str(round(t["dis_to_next_path"], 0)),
               "DN:Z:" + str(round(t["dis_to_normal"], 2)),

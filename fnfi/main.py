@@ -99,7 +99,8 @@ def pipeline(kwargs):  # Todo add a verbosity option (keep some or all of temp f
 
     cluster.cluster_reads(kwargs)
     # Todo cleanup of other temp files
-    click.echo("fnfi run completed in {} h:m:s\n".format(str(datetime.timedelta(seconds=int(time.time() - t0)))),
+    click.echo("fnfi run {} completed in {} h:m:s\n".format(kwargs["bam"],
+                                                            str(datetime.timedelta(seconds=int(time.time() - t0)))),
                err=True)
 
 
@@ -357,12 +358,13 @@ if __name__ == "__main__":
 
     #input_stream_alignments.process_reads(df)
     k = defaults
-    k["sv_aligns"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/Event_simulator/bwa.0.2.srt.fnfi.srt.bam"
+    k["sv_aligns"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/DB119.fnfi.srt.bam"
     # k["raw_aligns"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/Event_simulator/Events/bwa.0.2.srt.bam"
     k["include"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/test/include_tels.bed"
-    k["svs_out"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/Event_simulator/test1.csv"
-    k["procs"] = 8
-    name = "fufi2_id{}".format("0.2")
+    k["svs_out"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/DB119.test.csv"
+    k["procs"] = 1
+    k["I"] = "142,187"
+    #name = "fufi2_id{}".format("0.2")
 
     cluster.cluster_reads(k)
     #call("diff /Users/kezcleal/Documents/Data/fusion_finder_development/Split_read_simulator/paired_end_with_one_split/pairs.fnfi.unsrt.sam /Users/kezcleal/Documents/Data/fusion_finder_development/Split_read_simulator/sv_gen_mapped/test.fnfi.unsrt.sam", shell=True)
