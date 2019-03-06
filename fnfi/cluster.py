@@ -4,7 +4,7 @@ import itertools
 import os
 import multiprocessing
 import time
-from collections import defaultdict, Counter
+from collections import defaultdict, Counter, deque
 from subprocess import call
 import click
 import networkx as nx
@@ -54,7 +54,7 @@ class Scoper(object):
     def __init__(self, max_dist, clip_length=20, max_depth=60):  # Todo add parameter for this
         self.max_dist = max_dist
         self.max_depth = max_depth
-        self.scope = []
+        self.scope = deque([])
         self.clip_length = clip_length
 
     def update(self, input_read):
@@ -65,26 +65,26 @@ class Scoper(object):
             return current_read
 
         elif len(self.scope) > 0 and current_read.rname != self.scope[-1].rname:
-            self.scope = [current_read]  # Empty scope on new chromosome
+            self.scope = deque([current_read])  # Empty scope on new chromosome
             return current_read
 
         current_pos = current_read.pos
 
-        # Go through reads and check if they are in scope
-        trim_scope_idx = 0
-        start = 0
-        if len(self.scope) >= self.max_depth:
-            start = 1  # Has the effect of dropping first entry from scope
-        for scope_index in xrange(start, len(self.scope)):
-            if abs(self.scope[scope_index].pos - current_pos) < self.max_dist:
-                trim_scope_idx = scope_index
+        while True:
+            if len(self.scope) == 0:
+                break
+            if len(self.scope) > self.max_depth:
+                self.scope.popleft()
+            else:
                 break
 
-        if trim_scope_idx > 0:
-            # assert (abs(self.scope[trim_scope_idx].pos - current_pos) < self.max_dist) != \
-            # (abs(self.scope[trim_scope_idx - 1].pos - current_pos) < self.max_dist)
-            if trim_scope_idx < len(self.scope):
-                self.scope = self.scope[slice(trim_scope_idx, len(self.scope))]
+        while True:
+            if len(self.scope) == 0:
+                break
+            if abs(self.scope[0].pos - current_pos) > self.max_dist:
+                self.scope.popleft()
+            else:
+                break
 
         self.scope.append(current_read)
         return current_read
@@ -453,26 +453,31 @@ def make_block_model(g, insert_size, insert_stdev, read_length, _debug=[]):
     inner_model = blockmodel(intersection, partitions=[i.nodes() for i in sub_grp_cc])
 
     # Each node in the inner_model is actually a set of nodes.
-    # For each node in the model, explore the input graph for new edges
+    # For each node in the inner_model, explore the input graph for new edges
     # return inner_model
 
     all_node_sets = set(inner_model.nodes())
-    updated = True
+
     updated_partitons = []
     for node_set in inner_model.nodes():
 
-        other_nodes = set([item for sublist in list(all_node_sets.difference(set([node_set]))) for item in sublist])
+        other_nodes = set([item for sublist in list(all_node_sets.difference(node_set)) for item in sublist])
 
         # Expected local nodes
         # Read clouds uncover variation in complex regions of the human genome. Bishara et al 2016.
         # max template size * estimated coverage / read_length; 2 just to increase the upper bound a bit
         local_upper_bound = ((insert_size + (2 * insert_stdev)) * float(2 + len(node_set))) / float(read_length)
         additional_nodes = explore_local(set(node_set), g, other_nodes, ["y", "g"], local_upper_bound)
-        if len(additional_nodes) > 0:  # If any new nodes are found
-            updated = True
-        updated_partitons.append(set(node_set).union(additional_nodes))
 
-    if updated:  # Re-partition the graph
+        # Make sure additional nodes dont appear in other partitions. Can occasionally happen
+        # if len(updated_partitons) > 0:
+        #     for item in updated_partitons:
+        #         additional_nodes = additional_nodes.difference(item)
+
+        if len(additional_nodes) > 0:  # If any new nodes are found
+            updated_partitons.append(set(node_set).union(additional_nodes))
+
+    if len(updated_partitons) > 0:  # Re-partition the graph
         intersection = g.subgraph([item for sublist in updated_partitons for item in sublist])
         inner_model = blockmodel(intersection, partitions=updated_partitons)
 
@@ -615,6 +620,7 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=(), w
                 buf_del_index += 1
 
             all_flags[r.qname].add((r.flag, r.pos))
+
             r = scope.update(r)  # Add alignment to scope, convert to a pickle-able object
 
             ol_include = False
@@ -630,12 +636,12 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=(), w
             # Keeps all singletons that dont overlap --include, even if no 'black' or 'grey' edges.
             if not ol_include:
                 G.add_node(n1, {"p": (r.rname, r.pos)})
-            # if r.qname == "HISEQ2500-10:539:CAV68ANXX:7:1307:1309:31283":
-            #     echo("Node", n1, G.has_node(n1))
-            #     echo(ol_include, r.has_SA)
 
-            # targets = {('HISEQ2500-10:539:CAV68ANXX:7:1307:1309:31283', 113, 113565),
-            #            ('HISEQ2500-10:539:CAV68ANXX:7:1307:1309:31283', 2145, 114317)}
+            targets = set([])
+            if r.qname == "simulated_reads.0.10-id120_A_chr17:114709_B_chr1:3108649-16621":
+                echo("Node", n1, G.has_node(n1))
+                echo(ol_include, r.has_SA)
+                targets.add(n1)
 
             gg = 0
             bb = 0
@@ -652,6 +658,9 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=(), w
                 # rearrangement with start and end coords on reference genome.
                 # Yellow means supplementary (with no good soft-clip) matches a primary
                 # Finally white edge means a read1 to read2 edge
+                if n1 in targets:
+                    echo(n1, n2, ol, sup_edge)
+
                 if ol:  # and not sup_edge:
 
                     identity, prob_same = align_match(r, t)
@@ -659,7 +668,7 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=(), w
                         G.add_node(n2, {"p": (t.rname, t.pos)})
                         G.add_edge(n1, n2, {"c": "b"})
                         # if n1 in targets:
-                        #     echo("adding black")
+                        #     echo(n1, n2, "adding black")
                         black_edges += 1
                         bb += 1
                         if bb > 6:  # Stop the graph getting unnecessarily dense
@@ -684,9 +693,19 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=(), w
 
                     if add_grey:
                         G.add_node(n2, {"p": (t.rname, t.pos)})
+
+                        if n1 == ('simulated_reads.0.10-id143_A_chr17:113978_B_chr1:4634104-19367', 97, 4633653) and n2 == ('simulated_reads.0.10-id120_A_chr17:114709_B_chr1:3108649-16621', 97, 3108553):
+                            echo("hiiiiii")
+                            echo(add_grey)
+                            echo("rname pos and sep distance", r.rname, r.pos, t.rname, t.pos, abs(r.pnext - t.pnext))
+                            echo("scop length", len(scope.scope))
+                            for item in scope.scope:
+                                echo("pos in scope", item.pos)
+                            quit()
+
                         G.add_edge(n1, n2, {"c": "g"})
                         # if n1 in targets:
-                        #     echo("adding grey")
+                        #     echo(n1, n2, "adding grey")
                         gg += 1
                         grey_added += 1
                         if gg > 6:
@@ -1025,7 +1044,7 @@ def filter_high_cov(cm, pm, regions_depth, tree, max_cov):
     return cm, pm
 
 
-def get_regions_windows(args, unique_file_id, infile, max_dist, tree, delete=True):
+def get_regions_windows(args, unique_file_id, infile, max_dist, tree):
     """
     :param args:
     :param unique_file_id:
@@ -1036,7 +1055,7 @@ def get_regions_windows(args, unique_file_id, infile, max_dist, tree, delete=Tru
     """
     position_map, cluster_map = knn_cluster(args["include"], infile, max_dist)
 
-    target = None  # "HISEQ2500-10:541:CATW5ANXX:6:2113:11913:39334"
+    target = 'simulated_reads.0.10-id120_A_chr17:114709_B_chr1:3108649-16621'
     node_targets = set([])
     for k, v in position_map.items():
         for n, f, p in v:
@@ -1045,8 +1064,7 @@ def get_regions_windows(args, unique_file_id, infile, max_dist, tree, delete=Tru
                 node_targets.add((n, f, p))
 
     cluster_map = analyse_connectivity(cluster_map)
-    regions_depth = get_region_depth(cluster_map, args["sv_aligns"], args["dest"], unique_file_id, pad=10000,
-                                     delete=delete)
+    regions_depth = get_region_depth(cluster_map, args["sv_aligns"], args["dest"], unique_file_id, pad=10000)
     cluster_map, position_map = filter_high_cov(cluster_map, position_map, regions_depth, tree, args["max_cov"])
 
     for k, v in position_map.items():
@@ -1072,11 +1090,12 @@ def get_component_from_seed(G, seed_nodes):
         if nd in seen:
             continue
         seen.add(nd)
-        for edge in G.edges(nd, data=True):
-            v = edge[1]
-            if v not in seen:
-                found_nodes.add(v)
-                nodes_to_visit.add(v)
+        if G.has_node(nd):
+            for edge in G.edges(nd, data=True):
+                v = edge[1]
+                if v not in seen:
+                    found_nodes.add(v)
+                    nodes_to_visit.add(v)
     return G.subgraph(found_nodes)
 
 
@@ -1158,7 +1177,7 @@ def merge_events(potential, max_dist, tree, seen, try_rev=False, pick_best=False
                                 loci_same = True
 
             if "contig" in ei and "contig" in ej:
-                ci, cj = str(ei["contig"]).upper(), str(ej["contig"]).upper()
+                ci, cj = str(ei["contig"]), str(ej["contig"])  # .upper()
             else:
                 continue
 
@@ -1187,18 +1206,19 @@ def merge_events(potential, max_dist, tree, seen, try_rev=False, pick_best=False
     for item in potential:  # Add singletons, non-merged
         if not G.has_node(item["event_id"]):
             found.append(item)
-            # if item["event_id"] == 2556:
-            #     echo("found a singleton non-merged")
+            if item["event_id"] == 0:
+                echo("found a singleton non-merged")
+                echo("item", item)
 
     for grp in nx.connected_component_subgraphs(G):
 
         c = [potential[id_to_event_index[n]] for n in grp.nodes()]
 
-        # if 2556 in grp.nodes():
-        #     echo("component nodes", grp.nodes())
-        #     echo("merging with:")
-        #     for item in c:
-        #         echo("{}:{} {}:{}".format(item["chrA"], item["posA"], item["chrB"], item["posB"]))
+        if 0 in grp.nodes():
+            echo("component nodes", grp.nodes())
+            echo("merging with:")
+            for item in c:
+                echo("{}:{} {}:{}".format(item["chrA"], item["posA"], item["chrB"], item["posB"]))
 
         best = sorted(c, key=lambda x: sum([x["pe"], x["supp"]]), reverse=True)
         w0 = best[0]["pe"] + best[0]["supp"]  # Weighting for base result
@@ -1237,13 +1257,15 @@ def get_prelim_events(G, read_buffer, cluster_map, positions_map, infile, args, 
     block_edge_events = []
     event_id = 0
     edges_merge_tested = set([])
+
+    c_edge = None
     for c_edge in cluster_map.keys():
 
         seed_reads = positions_map[c_edge]
         big_grp = get_component_from_seed(G, seed_reads)
 
-        # big_grp is not necessarily connected
-        for grp in nx.connected_component_subgraphs(big_grp):
+        # big_grp is not necessarily connected, process smaller ones first
+        for grp in sorted(nx.connected_component_subgraphs(big_grp), key=lambda x: len(x.nodes())):
 
             reads = get_reads(infile, grp, max_dist, approx_rl, read_buffer)
 
@@ -1271,28 +1293,31 @@ def get_prelim_events(G, read_buffer, cluster_map, positions_map, infile, args, 
             potential_events = filter_potential(potential_events, regions)
 
             tested_edges = set([])
-            potential_events, tested_edges = merge_events(potential_events, max_dist, regions, tested_edges, try_rev=False)
+            potential_events, tested_edges = merge_events(potential_events, max_dist, regions, tested_edges,
+                                                          try_rev=False)
 
             edges_merge_tested = edges_merge_tested.union(tested_edges)
             block_edge_events += potential_events
 
+            # Prevent calling same reads again
+            G.remove_nodes_from(grp.nodes())
+
     # Perform a final merge across block nodes that haven't already been tested
     # Pick best=True prevents adding up of pe/supp, instead the best result is chosen
+
     merged, _ = merge_events(block_edge_events, max_dist, regions, edges_merge_tested, try_rev=True, pick_best=True)
 
     if merged:
         for event in merged:
-            try:
-                if event["posA"] == 46699837 or event["posB"] == 46699837:
-                    echo("pe", event)
-            except TypeError:
-                echo(len(event))
-                echo(event)
-                quit()
+
+            if event["event_id"] == 0:
+                echo("pe", event)
+
             # Collect coverage information
             event_string = caller.get_raw_cov_information(event, regions, cluster_map[c_edge], regions_depth)
             if event_string:
-
+                if event["event_id"] == 0:
+                    echo("out?", event)
                 yield event_string
 
 
@@ -1326,15 +1351,16 @@ def cluster_reads(args):
 
     head = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "cipos95A", "cipos95B",
             "DP", "DApri", "DN", "NMpri", "NP", "DAsup",
-            "NMsup", "maxASsup", "contig", "contig2", "pe", "supp", "sc", "block_edge", "MAPQpri", "MAPQsup", "raw_reads_10kb",
-            "kind", "connectivity", "linked"]  # Todo add strandadness
+            "NMsup", "maxASsup", "contig", "contig2", "pe", "supp", "sc", "block_edge", "MAPQpri", "MAPQsup",
+            "raw_reads_10kb", "kind", "connectivity", "linked"]  # Todo add strandadness
 
     unique_file_id = str(uuid.uuid4())
 
     regions = data_io.overlap_regions(args["include"])
 
     #unique_file_id = "fnfi_tmp"
-    cluster_map, positions_map, regions_depth, _debug_k = get_regions_windows(args, unique_file_id, infile, max_dist, regions)
+    cluster_map, positions_map, regions_depth, _debug_k = get_regions_windows(args, unique_file_id, infile, max_dist,
+                                                                              regions)
 
     # Collect all intervals to search
     all_intervals = []
@@ -1347,7 +1373,8 @@ def cluster_reads(args):
 
     all_m = merge_intervals(all_intervals)
 
-    G, read_buffer, approx_rl = construct_graph(infile, max_dist, regions, input_windows=all_m, buf_size=args["buffer_size"])
+    G, read_buffer, approx_rl = construct_graph(infile, max_dist, regions, input_windows=all_m,
+                                                buf_size=args["buffer_size"])
 
     prelim_ev = get_prelim_events(G, read_buffer, cluster_map, positions_map, infile, args, max_dist, regions,
                                   regions_depth, approx_rl, _debug_k)

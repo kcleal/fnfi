@@ -383,7 +383,7 @@ def single(parent_graph, bm, reads, bam, insert_size, insert_stdev, _debug_k):
     assembl1 = assembler.base_assemble(dict_a_subg, reads, bam)
     assembl2 = assembler.base_assemble(dict_b_subg, reads, bam)
 
-    roi = "HISEQ2500-10:541:CATW5ANXX:6:2113:11913:39334"
+    roi = "simulated_reads.0.10-id120_A_chr17:114709_B_chr1:3108649-16543"
     if roi in reads:
         echo("roi in reads (one_node)", reads)
         echo("assembly", assembl1)
@@ -427,7 +427,7 @@ def single(parent_graph, bm, reads, bam, insert_size, insert_stdev, _debug_k):
     return info
 
 
-def one_edge(parent_graph, bm, reads, bam, clip_length):
+def one_edge(parent_graph, bm, reads, bam, clip_length, from_func=None):
 
     assert len(bm.nodes()) == 2
     ns = list(bm.nodes())
@@ -439,11 +439,6 @@ def one_edge(parent_graph, bm, reads, bam, clip_length):
 
     as1 = assembler.base_assemble(sub, reads, bam)  #  assemblies[ns[0]]
     as2 = assembler.base_assemble(sub2, reads, bam)
-    roi = "HISEQ2500-10:541:CATW5ANXX:6:2113:11913:39334"
-    if roi in reads:
-        echo("roi in reads (one_edge)", reads)
-        echo("as1", as1)
-        echo("as2", as2)
 
     if as1 is None or len(as1) == 0:
         tuple_a = breaks_from_one_side(ns[0], reads, bam)
@@ -487,6 +482,13 @@ def one_edge(parent_graph, bm, reads, bam, clip_length):
         info["contig2"] = as2["contig"]
         info["contig2_rev"] = as2["contig_rev"]
 
+    roi = "simulated_reads.0.10-id120_A_chr17:114709_B_chr1:3108649-16543"
+    if roi in reads:
+        echo("roi in reads (one_edge)", from_func, len(reads), reads.keys())
+        echo("as1", as1)
+        echo("as2", as2)
+        echo("info", info)
+
     return info
 
 
@@ -495,7 +497,7 @@ def multi(parent_graph, bm, reads, bam, clip_length):
     for u, v in bm.edges():
         rd = reads_from_bm_nodeset([u, v], reads)
         sub = bm.subgraph([u, v])
-        yield one_edge(parent_graph, sub, rd, bam, clip_length)
+        yield one_edge(parent_graph, sub, rd, bam, clip_length, from_func="multi")
 
 
 def reads_from_bm_nodeset(bm_nodeset, reads):
@@ -524,7 +526,7 @@ def call_from_block_model(bm_graph, parent_graph, reads, bam, clip_length, inser
 
         elif len(bm.edges()) == 1:
             # Easy case
-            yield one_edge(parent_graph, bm, rds, bam, clip_length)
+            yield one_edge(parent_graph, bm, rds, bam, clip_length, from_func="bm")
 
 
 def call_to_string(call_info):
@@ -602,7 +604,6 @@ def get_raw_cov_information(r, regions, window_info, regions_depth):
         r["chrB"] = chrA
         r["posB"] = posA
         r["cipos95B"] = cipos95A
-        #if contig2 is not None:
         r["contig2"] = r["contig"]
         r["contig"] = contig2
 

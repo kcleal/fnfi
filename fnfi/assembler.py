@@ -325,6 +325,7 @@ def base_assemble(g, reads, bam, iid=0):
         start_end_rids[v].append(rid)
         strand_d[rid] = -1 if r.flag & 16 else 1
 
+    path = None
     try:
         path = dag_longest_path(G, weight="weight")
     except:
@@ -363,7 +364,7 @@ def base_assemble(g, reads, bam, iid=0):
            "ref_end": matches[-1],
            "read_names": set(read_names),
            "contig": bases,
-           "contig_rev": reverse_complement(bases.upper(), len(bases)),
+           "contig_rev": reverse_complement(bases, len(bases)),  # .upper()
            "id": iid}
 
     return res
@@ -447,7 +448,7 @@ def link_pair_of_assemblies(a, b, clip_length):
         if binfo[6]:
             bseq = bseq_rev  # rev_comp(bseq)
 
-    if check_contig_match(aseq.upper(), bseq.upper()) == 1:
+    if check_contig_match(aseq, bseq) == 1:  # .upper()
         a["linked"] = 1
     else:
         a["linked"] = 0
