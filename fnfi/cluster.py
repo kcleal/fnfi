@@ -694,14 +694,14 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=(), w
                     if add_grey:
                         G.add_node(n2, {"p": (t.rname, t.pos)})
 
-                        if n1 == ('simulated_reads.0.10-id143_A_chr17:113978_B_chr1:4634104-19367', 97, 4633653) and n2 == ('simulated_reads.0.10-id120_A_chr17:114709_B_chr1:3108649-16621', 97, 3108553):
-                            echo("hiiiiii")
-                            echo(add_grey)
-                            echo("rname pos and sep distance", r.rname, r.pos, t.rname, t.pos, abs(r.pnext - t.pnext))
-                            echo("scop length", len(scope.scope))
-                            for item in scope.scope:
-                                echo("pos in scope", item.pos)
-                            quit()
+                        # if n1 == ('simulated_reads.0.10-id143_A_chr17:113978_B_chr1:4634104-19367', 97, 4633653) and n2 == ('simulated_reads.0.10-id120_A_chr17:114709_B_chr1:3108649-16621', 97, 3108553):
+                        #     echo("hiiiiii")
+                        #     echo(add_grey)
+                        #     echo("rname pos and sep distance", r.rname, r.pos, t.rname, t.pos, abs(r.pnext - t.pnext))
+                        #     echo("scop length", len(scope.scope))
+                        #     for item in scope.scope:
+                        #         echo("pos in scope", item.pos)
+                        #     quit()
 
                         G.add_edge(n1, n2, {"c": "g"})
                         # if n1 in targets:

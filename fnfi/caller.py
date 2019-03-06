@@ -169,9 +169,10 @@ def separate_mixed(break_points_dict, thresh=500):
                     clst = cluster_by_distance(break_points, t=25)
                     if len(clst) == 2:
                         c1, c2 = clst
-                    else:
+                    elif len(clst) > 2:
                         c1, c2 = sorted(clst, key=lambda x: len(x))[-2:]  # Choose largest 2
-                        #c1, c2 = clst[0], {}  # Assume one cluster
+                    else:  # Couldn't separate
+                        c1, c2 = clst[0], {}  # Assume one cluster
 
                 else:  # Couldn't separate by supplementary
                     c1, c2 = clst[0], {}  # Assume one cluster
