@@ -40,7 +40,7 @@ defaults = {
             "fq1": None,
             "fq2": None,
             "max_cov": 150,
-            "buffer_size": 100000,
+            "buffer_size": 1000000,
             "I": "210,175"
             }
 
@@ -358,10 +358,10 @@ if __name__ == "__main__":
 
     #input_stream_alignments.process_reads(df)
     k = defaults
-    k["sv_aligns"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/DB119.fnfi.srt.bam"
+    k["sv_aligns"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/output/DB120.hq_all.fnfi.srt.bam"
     # k["raw_aligns"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/Event_simulator/Events/bwa.0.2.srt.bam"
     k["include"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/test/include_tels.bed"
-    k["svs_out"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/DB119.test.csv"
+    k["svs_out"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/DB120.test.csv"
     k["procs"] = 1
     k["I"] = "142,187"
     #name = "fufi2_id{}".format("0.2")

@@ -114,6 +114,9 @@ def process(rt):
     if int(length) < int(second_best):
         sys.stderr.write("WARNING: primary path < secondary path\n")
 
+    if length < 0:  # Todo make a minimum allowed alignment score
+        return False  # Drop template, couldnt align properly
+
     # Todo second best can be negative?
     return path, length, second_best, dis_to_normal, norm_pairings
 

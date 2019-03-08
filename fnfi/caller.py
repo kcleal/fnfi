@@ -301,7 +301,6 @@ def score_reads(read_names, all_reads):
 
     data = {k: [] for k in ('DP', 'DApri', 'DN', 'NMpri', 'NP', 'DAsupp', 'NMsupp', 'maxASsupp', 'MAPQpri', 'MAPQsupp')}
 
-    # roi = "HISEQ2500-10:541:CATW5ANXX:6:2113:11913:39334"
     # p = False
     for name, flag, pos in read_names:
 
@@ -309,6 +308,9 @@ def score_reads(read_names, all_reads):
         #     p = True
         #     echo(str(all_reads[name].keys()))
         #     echo(str(all_reads[name][(flag, pos)]))
+
+        if name not in all_reads:
+            continue
 
         read = all_reads[name][(flag, pos)]
         if not read.flag & 2048:
@@ -353,11 +355,12 @@ def score_reads(read_names, all_reads):
 def breaks_from_one_side(node_set, reads, bam):
     tup = {}
     for nn, nf, np in node_set:
-        tup[(nn, nf, np)] = guess_break_point(reads[nn][(nf, np)], bam)
+        if nn in reads:
+            tup[(nn, nf, np)] = guess_break_point(reads[nn][(nf, np)], bam)
     return pre_process_breakpoints(tup).values()  # Don't return whole dict
 
 
-def single(parent_graph, bm, reads, bam, insert_size, insert_stdev, _debug_k):
+def single(parent_graph, bm, reads, bam, insert_size, insert_stdev, _debug_k, roi=None):
 
     bmnodes = list(bm.nodes())
 
@@ -384,7 +387,6 @@ def single(parent_graph, bm, reads, bam, insert_size, insert_stdev, _debug_k):
     assembl1 = assembler.base_assemble(dict_a_subg, reads, bam)
     assembl2 = assembler.base_assemble(dict_b_subg, reads, bam)
 
-    roi = "simulated_reads.0.10-id120_A_chr17:114709_B_chr1:3108649-16543"
     if roi in reads:
         echo("roi in reads (one_node)", reads)
         echo("assembly", assembl1)
@@ -428,7 +430,10 @@ def single(parent_graph, bm, reads, bam, insert_size, insert_stdev, _debug_k):
     return info
 
 
-def one_edge(parent_graph, bm, reads, bam, clip_length, from_func=None):
+def one_edge(parent_graph, bm, reads, bam, clip_length, from_func=None, roi=None):
+
+    if roi in reads:
+        echo("True")
 
     assert len(bm.nodes()) == 2
     ns = list(bm.nodes())
@@ -436,9 +441,8 @@ def one_edge(parent_graph, bm, reads, bam, clip_length, from_func=None):
     # assembler.base_assemble(dict_a_subg, reads, bam)
     sub = parent_graph.subgraph(ns[0])
     sub2 = parent_graph.subgraph(ns[1])
-    #     assemblies[node_set] = assembler.base_assemble(sub, reads, bam)
 
-    as1 = assembler.base_assemble(sub, reads, bam)  #  assemblies[ns[0]]
+    as1 = assembler.base_assemble(sub, reads, bam)
     as2 = assembler.base_assemble(sub2, reads, bam)
 
     if as1 is None or len(as1) == 0:
@@ -465,6 +469,9 @@ def one_edge(parent_graph, bm, reads, bam, clip_length, from_func=None):
             info["linked"] = 1
 
     if "result" not in bm[ns[0]][ns[1]]:
+        if roi in reads:
+            echo("Fail")
+
         return None
     info.update(bm[ns[0]][ns[1]]["result"])
     info.update(score_reads(ns[0].union(ns[1]), reads))
@@ -483,8 +490,10 @@ def one_edge(parent_graph, bm, reads, bam, clip_length, from_func=None):
         info["contig2"] = as2["contig"]
         info["contig2_rev"] = as2["contig_rev"]
 
-    roi = "simulated_reads.0.10-id120_A_chr17:114709_B_chr1:3108649-16543"
+
     if roi in reads:
+        echo("tuple_a", tuple_a)
+        echo("tuple_b", tuple_b)
         echo("roi in reads (one_edge)", from_func, len(reads), reads.keys())
         echo("as1", as1)
         echo("as2", as2)
@@ -493,15 +502,30 @@ def one_edge(parent_graph, bm, reads, bam, clip_length, from_func=None):
     return info
 
 
-def multi(parent_graph, bm, reads, bam, clip_length):
-
+def multi(parent_graph, bm, reads, bam, clip_length, roi=None):
+    c = 0
     for u, v in bm.edges():
-        rd = reads_from_bm_nodeset([u, v], reads)
+        # rd = reads_from_bm_nodeset([u, v], reads)
+
+        rd_u = reads_from_bm_nodeset([u], reads)
+        rd_v = reads_from_bm_nodeset([v], reads)
+
+        # Get intersection; reads that are found in both nodes
+        rd = {x: rd_u[x] for x in rd_u if x in rd_v}
+
+        if roi in reads:
+            echo("u", u)
+            echo("v", v)
+            if roi in rd:
+                echo(".", rd.keys())
         sub = bm.subgraph([u, v])
-        yield one_edge(parent_graph, sub, rd, bam, clip_length, from_func="multi")
+        # echo(c, len(rd), sorted([i.split(":")[-1] for i in rd.keys()]))
+        c += 1
+        yield one_edge(parent_graph, sub, rd, bam, clip_length, from_func="multi", roi=roi)
 
 
 def reads_from_bm_nodeset(bm_nodeset, reads):
+    # Get all alignments corresponding to read-names in bm_nodeset
     qnames = set([])
     for nd in bm_nodeset:
         for item in nd:
@@ -510,24 +534,26 @@ def reads_from_bm_nodeset(bm_nodeset, reads):
 
 
 def call_from_block_model(bm_graph, parent_graph, reads, bam, clip_length, insert_size, insert_stdev, _debug_k=False):
-
+    roi = "HISEQ2500-10:539:CAV68ANXX:7:2115:19198:88808"
     # Block model is not guaranteed to be connected
     for bm in nx.connected_component_subgraphs(bm_graph):
 
         rds = reads_from_bm_nodeset(bm.nodes(), reads)
+        if len(rds) == 0:
+            continue  # If reads could'nt be collected
 
         if len(bm.edges()) > 1:
             # Break apart connected
-            for event in multi(parent_graph, bm, rds, bam, clip_length):
+            for event in multi(parent_graph, bm, rds, bam, clip_length, roi=roi):
                 yield event
 
         elif len(bm.nodes()) == 1:
             # Single isolated node
-            yield single(parent_graph, bm, rds, bam, insert_size, insert_stdev, _debug_k)
+            yield single(parent_graph, bm, rds, bam, insert_size, insert_stdev, _debug_k, roi=roi)
 
         elif len(bm.edges()) == 1:
             # Easy case
-            yield one_edge(parent_graph, bm, rds, bam, clip_length, from_func="bm")
+            yield one_edge(parent_graph, bm, rds, bam, clip_length, from_func="not multi", roi=roi)
 
 
 def call_to_string(call_info):
