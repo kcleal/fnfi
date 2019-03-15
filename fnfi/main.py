@@ -8,6 +8,8 @@ import find_pairs
 import cluster
 import input_stream_alignments
 import data_io
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 cpu_range = click.IntRange(min=1, max=cpu_count())
 
@@ -41,7 +43,8 @@ defaults = {
             "fq2": None,
             "max_cov": 150,
             "buffer_size": 1000000,
-            "I": "210,175"
+            "I": "210,175",
+            "model": os.path.dirname(os.path.realpath(__file__)) + "/fnfi_model.pkl"
             }
 
 align_args = {}
@@ -273,6 +276,8 @@ def fnfi_aligner(ctx, **kwargs):
               default=None, type=click.Path())
 @click.option("--buffer-size", help="Number of alignments to load into buffer", default=defaults["buffer_size"],
               type=int, show_default=True)
+@click.option("--model", help="A model trained with fnfi train", default=defaults["model"],
+              type=click.Path(), show_default=True)
 @click.pass_context
 def call_events(ctx, **kwargs):
     """Clusters reads into SV-events. Takes as input the original .bam file, and a .bam file with only sv-like reads."""

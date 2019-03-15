@@ -11,6 +11,7 @@ import networkx as nx
 import numpy as np
 import pysam
 import sys
+import pickle
 import pandas as pd
 import array
 import caller
@@ -1282,7 +1283,7 @@ def merge_events(potential, max_dist, tree, seen, try_rev=False, pick_best=False
 
 
 def get_prelim_events(G, read_buffer, cluster_map, positions_map, infile, args, max_dist, regions, regions_depth,
-                      approx_rl, _debug_k):
+                      approx_rl, model, _debug_k):
 
     # Go through edges in cluster map and make calls on block-model edges/nodes
     # Then merge all events to prevent duplication
@@ -1354,7 +1355,7 @@ def get_prelim_events(G, read_buffer, cluster_map, positions_map, infile, args, 
             #     echo("pe", event)
 
             # Collect coverage information
-            event_string = caller.get_raw_cov_information(event, regions, cluster_map[c_edge], regions_depth)
+            event_string = caller.get_raw_cov_information(event, regions, cluster_map[c_edge], regions_depth, model)
             if event_string:
                 # if event["event_id"] == 0:
                 #     echo("out?", event)
@@ -1364,6 +1365,13 @@ def get_prelim_events(G, read_buffer, cluster_map, positions_map, infile, args, 
 def cluster_reads(args):
     t0 = time.time()
 
+    try:
+        model = pickle.load(open(args["model"]))
+        click.echo("Model loaded from {}".format(args["model"]), err=True)
+    except:
+        model = None
+        click.echo("No model loaded", err=True)
+
     data_io.mk_dest(args["dest"])
     if args["dest"] is None:
         args["dest"] = "."
@@ -1371,7 +1379,7 @@ def cluster_reads(args):
     kind = args["sv_aligns"].split(".")[-1]
     opts = {"bam": "rb", "cram": "rc", "sam": "rs"}
 
-    click.echo("Input file is {}, (.{} format). {} processes".format(args["sv_aligns"], kind, args["procs"]), err=True)
+    click.echo("Input file is {}, (.{} format). Processes={}".format(args["sv_aligns"], kind, args["procs"]), err=True)
     infile = pysam.AlignmentFile(args["sv_aligns"], opts[kind])
 
     if "insert_median" not in args and "I" in args:
@@ -1379,7 +1387,7 @@ def cluster_reads(args):
         args["insert_median"] = im
         args["insert_stdev"] = istd
 
-    max_dist = int(args["insert_median"] + (5 * args["insert_stdev"]))  # > distance reads drop out of clustering scope
+    max_dist = 2 * (int(args["insert_median"] + (5 * args["insert_stdev"])))  # > distance reads drop out of clustering scope
     click.echo("Maximum clustering distance is {}".format(max_dist), err=True)
 
     if args["svs_out"] == "-" or args["svs_out"] is None:
@@ -1392,7 +1400,7 @@ def cluster_reads(args):
     head = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "cipos95A", "cipos95B",
             "DP", "DApri", "DN", "NMpri", "NP", "DAsup",
             "NMsup", "maxASsup", "contig", "contig2", "pe", "supp", "sc", "block_edge", "MAPQpri", "MAPQsup",
-            "raw_reads_10kb", "kind", "connectivity", "linked"]  # Todo add strandadness
+            "raw_reads_10kb", "kind", "connectivity", "linked", "Prob"]  # Todo add strandadness
     # Todo add sample name in output?
     unique_file_id = str(uuid.uuid4())
 
@@ -1417,7 +1425,7 @@ def cluster_reads(args):
                                                 buf_size=args["buffer_size"])
 
     prelim_ev = get_prelim_events(G, read_buffer, cluster_map, positions_map, infile, args, max_dist, regions,
-                                  regions_depth, approx_rl, _debug_k)
+                                  regions_depth, approx_rl, model, _debug_k)
 
     c = 0
     with outfile:

@@ -73,11 +73,13 @@ def get_reads(args):
         if not r.cigartuples:  # Cigar is not formatted
             continue
 
-        if len(insert_size) < 10000 and r.flag & 2:
-            tmpl = abs(r.template_length)
-            if tmpl < 1000:
-                insert_size.append(tmpl)
-                read_length.append(r.infer_read_length())
+        if len(insert_size) < 10000:
+            if r.flag & 2:
+                tmpl = abs(r.template_length)
+                if tmpl < 1000:
+                    insert_size.append(tmpl)
+        if len(read_length) < 10000:
+            read_length.append(r.infer_read_length())
 
         if r.qname not in read_names:
             if not r.flag & 2 or r.flag & 2048:  # Save if read is discordant or supplementary exists
@@ -109,25 +111,18 @@ def get_reads(args):
 
     click.echo("Median insert size: {} (+/- {})".format(insert_median, insert_stdev), err=True)
 
-    return insert_median, insert_stdev, read_length, out_name
+    return insert_median, insert_stdev, int(np.mean(read_length)), out_name
 
 
-def convert_to_fastq(args, outname):
+def convert_to_fastq(outname):
 
-    # pysam.sort(*("-n -@{} -o {} {}".format(args["procs"], outname + ".srt.bam", outname + ".bam").split(" ")))
-
-    # call("samtools sort -n -@{t} -o {o} {i}".format(t=args["procs"], o=outname + ".srt.bam",
-    #                                                     i=outname + ".bam"), shell=True)
     call("samtools collate -r 100000 -f -o {o} {i}".format(o=outname + ".srt.bam",
-                                                    i=outname + ".bam"), shell=True)
+                                                           i=outname + ".bam"), shell=True)
 
     call("samtools fastq -s /dev/null -1 {fq1} -2 {fq2} {bam}".format(fq1=outname + "1.fq",
                                                                       fq2=outname + "2.fq",
                                                                       bam=outname + ".srt.bam"), shell=True)
 
-    # call("bedtools bamtofastq -i {bam} -fq {fq} fq2 {fq2} > /dev/null".format(fq=outname + "1.fq",
-    #                                                                           fq2=outname + "2.fq",
-    #                                                                           bam=outname + ".srt.bam"), shell=True)
     os.remove(outname + ".srt.bam")
     os.remove(outname + ".bam")
 
@@ -138,7 +133,7 @@ def process(args):
     data_io.mk_dest(args["dest"])
 
     insert_median, insert_stdev, read_length, out_name = get_reads(args)
-    convert_to_fastq(args, out_name)
+    convert_to_fastq(out_name)
     click.echo("Collected reads in {} h:m:s".format(str(datetime.timedelta(seconds=int(time.time() - t0)))), err=True)
 
     return {"insert_median": insert_median,

@@ -561,7 +561,7 @@ def call_to_string(call_info):
     k = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "cipos95A", "cipos95B",
          "DP", "DApri", "DN", "NMpri", "NP", "DAsupp",
          "NMsupp", "maxASsupp", "contig", "contig2", "pe", "supp", "sc", "block_edge", "MAPQpri", "MAPQsupp", "raw_reads_10kb",
-         "kind", "connectivity", "linked"]
+         "kind", "connectivity", "linked", "Prob"]
 
     return "\t".join([str(call_info[ky]) if ky in call_info else str(None) for ky in k]) + "\n"
 
@@ -575,7 +575,25 @@ def calculate_coverage(chrom, start, end, region_depths):
     return [region_depths[(chrom, i)] for i in range(start, end, 100) if (chrom, i) in region_depths]
 
 
-def get_raw_cov_information(r, regions, window_info, regions_depth):
+def calculate_prob_from_model(r, models):
+    features = ['cipos95A', 'cipos95B', 'DP', 'DApri', 'DN', 'NMpri', 'NP', 'DAsupp', 'NMsupp', 'maxASsupp',
+                'contig1_exists', 'both_contigs_exist', 'contig2_exists', 'pe', 'supp', 'sc', 'block_edge', 'MAPQpri',
+                'MAPQsupp', 'raw_reads_10kb']
+    if not models:
+        return 1
+    r["contig1_exists"] = 1 if (str(r["contig"]) != "None") else 0
+    r["contig2_exists"] = 1 if (str(r["contig2"]) != "None") else 0
+    r["both_contigs_exist"] = r["contig1_exists"] == 1 and r["contig2_exists"] == 1
+    X = np.array([[r[f] for f in features]])
+    kind = r["kind"]
+    if kind not in models:
+        probs = models["hemi-regional"].predict_proba(X)
+    else:
+        probs = models[kind].predict_proba(X)
+    return np.round(1 - probs[:, 0][0], 4)
+
+
+def get_raw_cov_information(r, regions, window_info, regions_depth, model):
 
     # Check if side A in regions
     ar = False
@@ -641,6 +659,9 @@ def get_raw_cov_information(r, regions, window_info, regions_depth):
     r["kind"] = kind
     r["raw_reads_10kb"] = reads_10kb
     r["connectivity"] = window_info["connectivity"]
+
+    r["Prob"] = calculate_prob_from_model(r, model)
+
     return call_to_string(r)
 
 
