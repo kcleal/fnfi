@@ -18,6 +18,7 @@ import caller
 from sklearn.neighbors import KDTree
 import data_io
 import assembler
+from graph_funcs import blockmodel
 
 try:
     from StringIO import StringIO
@@ -261,7 +262,7 @@ def explore_local(starting_nodes, large_component, other_nodes, look_for, upper_
         seen.add(nd)
 
         for edge in large_component.edges(nd, data=True):
-            if edge[2]['c'] in additional_nodes:
+            if edge[2]['c'] in additional_nodes:  # If color in look_for list
 
                 for n in (0, 1):  # Check both ends of the edge for uniqueness
                     if edge[n] not in seen:
@@ -326,94 +327,6 @@ def make_nuclei(g, _debug=[]):
             if sub_grp.has_edge(*item):
                 echo("subg has edge", item, sub_grp[item[0]][item[1]]["c"])
     return sub_grp
-
-
-def blockmodel(G, partitions):
-    """Stolen from NetworkX 1.9. Returns a reduced graph constructed using the generalized block modeling
-    technique. Faster than the quotient graph method, but not by much.
-
-    The blockmodel technique collapses nodes into blocks based on a
-    given partitioning of the node set.  Each partition of nodes
-    (block) is represented as a single node in the reduced graph.
-
-    Edges between nodes in the block graph are added according to the
-    edges in the original graph.  If the parameter multigraph is False
-    (the default) a single edge is added with a weight equal to the
-    sum of the edge weights between nodes in the original graph
-    The default is a weight of 1 if weights are not specified.  If the
-    parameter multigraph is True then multiple edges are added each
-    with the edge data from the original graph.
-
-    Parameters
-    ----------
-    G : graph
-        A networkx Graph or DiGraph
-    partitions : list of lists, or list of sets
-        The partition of the nodes.  Must be non-overlapping.
-    multigraph : bool, optional
-        If True return a MultiGraph with the edge data of the original
-        graph applied to each corresponding edge in the new graph.
-        If False return a Graph with the sum of the edge weights, or a
-        count of the edges if the original graph is unweighted.
-
-    Returns
-    -------
-    blockmodel : a Networkx graph object
-
-    Examples
-    --------
-    >>> G=nx.path_graph(6)
-    >>> partition=[[0,1],[2,3],[4,5]]
-    >>> M=nx.blockmodel(G,partition)
-
-    References
-    ----------
-    .. [1] Patrick Doreian, Vladimir Batagelj, and Anuska Ferligoj
-    	"Generalized Blockmodeling",Cambridge University Press, 2004.
-    """
-    # Create sets of node partitions, frozenset makes them hashable
-    part = [frozenset(i) for i in partitions]
-
-    # Check for overlapping node partitions
-    u = set()
-    for p1, p2 in zip(part[:-1], part[1:]):
-        u.update(p1)
-        if len(u.intersection(p2)) > 0:
-            raise nx.NetworkXException("Overlapping node partitions.")
-
-    # Initialize blockmodel graph
-    M = nx.Graph()
-
-    # Add nodes and properties to blockmodel
-    # The blockmodel nodes are node-induced subgraphs of G
-    # Label them with integers starting at 0
-    for i, p in zip(range(len(part)), part):
-        M.add_node(p)
-        # The node-induced subgraph is stored as the node 'graph' attribute
-        SG = G.subgraph(p)
-        M.node[p]['graph'] = SG
-
-    # Create mapping between original node labels and new blockmodel node labels
-    block_mapping = {}
-    for n in M:
-        nodes_in_block = M.node[n]['graph'].nodes()
-        block_mapping.update(dict.fromkeys(nodes_in_block, n))
-
-    # Add edges to block graph
-    for u, v, d in G.edges(data=True):
-
-        bmu = block_mapping[u]
-        bmv = block_mapping[v]
-        if bmu == bmv:  # no self loops
-            continue
-
-        # For graphs and digraphs add single weighted edge
-        weight = d.get('weight', 1.0)  # default to 1 if no weight specified
-        if M.has_edge(bmu, bmv):
-            M[bmu][bmv]['weight'] += weight
-        else:
-            M.add_edge(bmu, bmv, weight=weight)
-    return M
 
 
 def make_block_model(g, insert_size, insert_stdev, read_length, _debug=[]):
@@ -487,6 +400,7 @@ def make_block_model(g, insert_size, insert_stdev, read_length, _debug=[]):
 
     all_node_sets = set(inner_model.nodes())
 
+    # Try and find other nodes for each partition i.e. other supplementary or mate-pairs
     updated_partitons = []
     for node_set in inner_model.nodes():
 
@@ -1115,7 +1029,7 @@ def get_regions_windows(args, unique_file_id, infile, max_dist, tree):
 
 def get_component_from_seed(G, seed_nodes):
 
-    # Explore all out edges from original seed nodes
+    # Explore all out edges from original seed nodes, this gets the connected components induced by seed_nodes
     nodes_to_visit = set(seed_nodes)
     found_nodes = set(seed_nodes)
     seen = set([])
@@ -1292,12 +1206,17 @@ def get_prelim_events(G, read_buffer, cluster_map, positions_map, infile, args, 
     event_id = 0
     edges_merge_tested = set([])
     # _debug_k = {('HISEQ2500-10:539:CAV68ANXX:7:2216:13688:97541', 97, 26348614)}
-    echo("_debugk for get_prelim_events is ", _debug_k)
+    if _debug_k:
+        echo("_debugk for get_prelim_events is ", _debug_k)
     c_edge = None
     for c_edge in cluster_map.keys():
 
         seed_reads = positions_map[c_edge]
-        big_grp = get_component_from_seed(G, seed_reads)
+
+        # Todo it should be safe to remove all grp nodes from G after processing, would prevent most multiple calls
+        # Todo also some c_edges could be skipped (keep records of which nodes have been processed)
+
+        big_grp = get_component_from_seed(G, seed_reads)  # Gets connected component(s)
 
         # big_grp is not necessarily connected, process smaller ones first
         for grp in sorted(nx.connected_component_subgraphs(big_grp), key=lambda x: len(x.nodes())):
@@ -1366,7 +1285,7 @@ def cluster_reads(args):
     t0 = time.time()
 
     try:
-        model = pickle.load(open(args["model"]))
+        model = pickle.load(open(args["model"]))  # Todo only add the dataset no model, returan the model (save space)
         click.echo("Model loaded from {}".format(args["model"]), err=True)
     except:
         model = None

@@ -44,7 +44,8 @@ defaults = {
             "max_cov": 150,
             "buffer_size": 1000000,
             "I": "210,175",
-            "model": os.path.dirname(os.path.realpath(__file__)) + "/fnfi_model.pkl"
+            "model": None
+            #"model": os.path.dirname(os.path.realpath(__file__)) + "/fnfi_model.pkl"
             }
 
 align_args = {}
@@ -368,6 +369,7 @@ if __name__ == "__main__":
     k["include"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/test/include_tels.bed"
     k["svs_out"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/DB120.test.csv"
     k["procs"] = 1
+    k["model"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/trained_fnfi2_clf2_extratrees_model.pkl"
     k["I"] = "142,187"
     #name = "fufi2_id{}".format("0.2")
 
