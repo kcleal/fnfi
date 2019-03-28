@@ -163,34 +163,11 @@ def base_assemble(g, reads, bam, iid=0):
     return res
 
 
-def explore_local(starting_nodes, large_component, color, upper_bound):
-    seen = set(starting_nodes)
-    found = set([])
-    if len(starting_nodes) == 0:
-        return set([])
-    while True:
-        nd = starting_nodes.pop()
-        seen.add(nd)
-        for edge in large_component.edges(nd, data=True):
-            if edge[2]['c'] == color:
-                if edge[0] not in seen:
-                    starting_nodes.add(edge[0])
-                    found.add(edge[0])
-                elif edge[1] not in seen:
-                    starting_nodes.add(edge[1])
-                    found.add(edge[1])
-            if len(found) > upper_bound:
-                return set([])
-        if len(starting_nodes) == 0:
-            break
-    return found
+def check_contig_match(a, b, diffs=8, ol_length=21, supress_seq=True):
 
-
-def check_contig_match(a, b, diffs=8, ol_length=21):
-
-    query = StripedSmithWaterman(str(a), suppress_sequences=True)
+    query = StripedSmithWaterman(str(a), suppress_sequences=supress_seq)
     alignment = query(str(b))
-
+    # echo(alignment)
     qs, qe = alignment.query_begin, alignment.query_end
     als, ale = alignment.target_begin, alignment.target_end_optimal
 
@@ -208,42 +185,104 @@ def check_contig_match(a, b, diffs=8, ol_length=21):
     if diff > diffs:  # e.g. 2 mis-matches + 2 unaligned overhanging bits
         return 0
     else:
-        return 1
+        return (qs, qe, als, ale, alignment.cigar, alignment.aligned_query_sequence, alignment.aligned_target_sequence)
+
+
+def get_upper_start_end(a):
+    a_start, a_end = -1, 0
+    for idx, l in enumerate(a):
+        if l.isupper():
+            if a_start == -1:
+                a_start = idx
+            if idx > a_end:
+                a_end = idx
+    return a_start, a_end + 1
+
+
+def get_mark_result(res, insertion, a, b, sa, sb, a_start, a_end, b_start, b_end):
+    if insertion < 0:
+        res["mark"] = "microh"
+    else:
+        res["mark"] = "ins"
+    edit_dis = len([1 for i, j in zip(sa, sb) if i != j])
+    res["mark_seq"] = sa
+    res["mark_ed"] = edit_dis
+
+    if insertion > 0:
+        # Look for templated insertion
+        a_align = a[a_start:a_end].replace("-", "")  # Remove any deletion markers
+        b_align = b[b_start:b_end].replace("-", "")
+
+        a_query = StripedSmithWaterman(sa)
+        a_alignment = a_query(a_align)
+        b_alignment = a_query(b_align)
+
+        if a_alignment.optimal_alignment_score >= b_alignment.optimal_alignment_score:
+            cont = "A"
+            aln = a_alignment
+        else:
+            cont = "B"
+            aln = b_alignment
+
+        aqs = aln.aligned_query_sequence
+        tqs = aln.aligned_target_sequence
+        edit_dis = len([1 for i, j in zip(aqs, tqs) if i.upper() != j])
+        v = "cont{}:pos={}:ed={}:align={}".format(cont, aln.target_begin, edit_dis, aqs)
+        l = aln.target_end_optimal - aln.target_begin + 1
+
+        res["templated_ins_info"] = v
+        res["templated_ins_len"] = l
+
+    return res
+
+
+def get_microh_or_ins(aln_idx):
+    qs, qe, als, ale, q_cigar, q_aln, t_aln = aln_idx
+    a = q_aln  # Use actual alignment sequence - keep deletions and insertions in place
+    b = t_aln
+
+    a_start, a_end = get_upper_start_end(a)
+    b_start, b_end = get_upper_start_end(b)
+
+    # Check for overlap of gap
+    res = {"mark": "blunt", "mark_seq": "", "mark_ed": "", "templated_ins_info": "", "templated_ins_len": ""}
+    if a_start >= b_start:
+        insertion = a_start - b_end
+        if insertion != 0:
+            v = slice(*sorted([a_start, b_end]))
+            sa = a[v]
+            sb = b[v]
+            res = get_mark_result(res, insertion, a, b, sa, sb, a_start, a_end, b_start, b_end)
+
+    else:
+        insertion = b_start - a_end
+        if insertion != 0:
+            v = slice(*sorted([b_start, a_end]))
+            sa = a[v]
+            sb = b[v]
+            res = get_mark_result(res, insertion, a, b, sa, sb, a_start, a_end, b_start, b_end)
+
+    return res
 
 
 def link_pair_of_assemblies(a, b, clip_length):
-    seqs = []
-    for i in (a, b):
-        left_clipped = False
-        negative_strand = True if i["strand_r"] < 0 else False
-        sc_support = i["right_clips"]
 
-        if i["left_clips"] > i["right_clips"]:
-            left_clipped = True
-            negative_strand = True if i["strand_l"] < 0 else False
-            sc_support = i["left_clips"]
+    # Safest way is to try forward and reverse complement
+    m = check_contig_match(a["contig"], b["contig"], supress_seq=False)
 
-        if i is None:
-            a["linked"] = 0
-            return a
-
-        seqs.append((i["contig"], sc_support, i["bamrname"], i["ref_start"], i["ref_end"] + 1, left_clipped,
-                     negative_strand, i["contig_rev"]))
-
-    ainfo, binfo = seqs
-    aseq, bseq, aseq_rev, bseq_rev = ainfo[0], binfo[0], ainfo[7], binfo[7]
-    if ainfo[2] == binfo[2]:  # If seqs are on the same chrom
-        if ainfo[5] == binfo[5]:  # If clips are on same side, rev comp one of them
-            bseq = bseq_rev  # rev_comp(bseq)
-    else:
-        if ainfo[6]:  # negative strand
-            aseq = aseq_rev  # rev_comp(aseq)
-        if binfo[6]:
-            bseq = bseq_rev  # rev_comp(bseq)
-
-    if check_contig_match(aseq, bseq) == 1:  # .upper()
+    if m != 0:
         a["linked"] = 1
-    else:
-        a["linked"] = 0
+        h = get_microh_or_ins(m)
 
+    else:
+
+        m = check_contig_match(a["contig"], b["contig_rev"], supress_seq=False)
+        if m != 0:
+            a["linked"] = 1
+            h = get_microh_or_ins(m)
+        else:
+            a["linked"] = 0
+            h = {"mark": "None", "mark_seq": "", "mark_ed": "", "templated_ins_info": "",
+                 "templated_ins_len": ""}
+    a.update(h)
     return a, b

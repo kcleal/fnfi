@@ -1209,12 +1209,15 @@ def get_prelim_events(G, read_buffer, cluster_map, positions_map, infile, args, 
     if _debug_k:
         echo("_debugk for get_prelim_events is ", _debug_k)
     c_edge = None
+    seen_reads = set([])
     for c_edge in cluster_map.keys():
 
         seed_reads = positions_map[c_edge]
 
         # Todo it should be safe to remove all grp nodes from G after processing, would prevent most multiple calls
         # Todo also some c_edges could be skipped (keep records of which nodes have been processed)
+        if any(i in seen_reads for i in seed_reads):
+            continue
 
         big_grp = get_component_from_seed(G, seed_reads)  # Gets connected component(s)
 
@@ -1254,7 +1257,7 @@ def get_prelim_events(G, read_buffer, cluster_map, positions_map, infile, args, 
 
             tested_edges = set([])
             potential_events, tested_edges = merge_events(potential_events, max_dist, regions, tested_edges,
-                                                          try_rev=False)
+                                                          try_rev=False, pick_best=True)
 
             edges_merge_tested = edges_merge_tested.union(tested_edges)
             block_edge_events += potential_events
@@ -1262,23 +1265,24 @@ def get_prelim_events(G, read_buffer, cluster_map, positions_map, infile, args, 
             # Prevent calling same reads again
             G.remove_nodes_from(grp.nodes())
 
+        # Keep record of what nodes have been processed to prevent potential duplication
+        nds = set(big_grp.nodes())
+        seen_reads.union(nds)
+        G.remove_nodes_from(nds)
+
     # Perform a final merge across block nodes that haven't already been tested
     # Pick best=True prevents adding up of pe/supp, instead the best result is chosen
 
     merged, _ = merge_events(block_edge_events, max_dist, regions, edges_merge_tested, try_rev=True, pick_best=True)
-
+    preliminaries = []
     if merged:
         for event in merged:
-
-            # if event["event_id"] == 0:
-            #     echo("pe", event)
-
             # Collect coverage information
-            event_string = caller.get_raw_cov_information(event, regions, cluster_map[c_edge], regions_depth, model)
-            if event_string:
-                # if event["event_id"] == 0:
-                #     echo("out?", event)
-                yield event_string
+            event_dict = caller.get_raw_cov_information(event, regions, cluster_map[c_edge], regions_depth, model)
+            if event_dict:
+                preliminaries.append(event_dict)
+
+    return preliminaries
 
 
 def cluster_reads(args):
@@ -1301,12 +1305,14 @@ def cluster_reads(args):
     click.echo("Input file is {}, (.{} format). Processes={}".format(args["sv_aligns"], kind, args["procs"]), err=True)
     infile = pysam.AlignmentFile(args["sv_aligns"], opts[kind])
 
+    sample_name = os.path.splitext(os.path.basename(args["sv_aligns"]))[0]
+
     if "insert_median" not in args and "I" in args:
         im, istd = map(float, args["I"].split(","))
         args["insert_median"] = im
         args["insert_stdev"] = istd
 
-    max_dist = 2 * (int(args["insert_median"] + (5 * args["insert_stdev"])))  # > distance reads drop out of clustering scope
+    max_dist = 2 * (int(args["insert_median"] + (5 * args["insert_stdev"])))  # reads drop from clustering scope
     click.echo("Maximum clustering distance is {}".format(max_dist), err=True)
 
     if args["svs_out"] == "-" or args["svs_out"] is None:
@@ -1316,16 +1322,11 @@ def cluster_reads(args):
         click.echo("SVs output to {}".format(args["svs_out"]), err=True)
         outfile = open(args["svs_out"], "w")
 
-    head = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "cipos95A", "cipos95B",
-            "DP", "DApri", "DN", "NMpri", "NP", "DAsup",
-            "NMsup", "maxASsup", "contig", "contig2", "pe", "supp", "sc", "block_edge", "MAPQpri", "MAPQsup",
-            "raw_reads_10kb", "kind", "connectivity", "linked", "Prob"]  # Todo add strandadness
-    # Todo add sample name in output?
-    unique_file_id = str(uuid.uuid4())
+    # Todo add strandadness
 
+    unique_file_id = str(uuid.uuid4())  # unique_file_id = "fnfi_tmp"
     regions = data_io.overlap_regions(args["include"])
 
-    #unique_file_id = "fnfi_tmp"
     cluster_map, positions_map, regions_depth, _debug_k = get_regions_windows(args, unique_file_id, infile, max_dist,
                                                                               regions)
 
@@ -1346,12 +1347,23 @@ def cluster_reads(args):
     prelim_ev = get_prelim_events(G, read_buffer, cluster_map, positions_map, infile, args, max_dist, regions,
                                   regions_depth, approx_rl, model, _debug_k)
 
+    classified_events_df = caller.calculate_prob_from_model(prelim_ev, model)
+
+    # Out order
+    k = ["chrA", "posA", "chrB", "posB", "sample", "id", "kind", "svtype", "join_type", "cipos95A", "cipos95B",
+         "DP", "DN", "DApri", "DAsupp",  "NMpri", "NMsupp", "MAPQpri", "MAPQsupp", "NP",
+          "maxASsupp",  "pe", "supp", "sc", "block_edge", "connectivity",
+         "raw_reads_10kb",
+          "linked", "contigA", "contigB", "mark", "mark_seq", "mark_ed", "templated_ins_info",
+         "templated_ins_len", "Prob"]
+
     c = 0
-    with outfile:
-        outfile.write("\t".join(head) + "\n")
-        for event in prelim_ev:
-            outfile.write(event)
-            c += 1
+    if classified_events_df is not None and len(classified_events_df) > 0:
+        c = len(classified_events_df)
+        classified_events_df["sample"] = [sample_name]*len(classified_events_df)
+        classified_events_df["id"] = range(len(classified_events_df))
+        classified_events_df = classified_events_df.rename(columns={"contig": "contigA", "contig2": "contigB"})
+        classified_events_df[k].to_csv(outfile, index=False)
 
     click.echo("call-events {} complete, n={}, {} h:m:s".format(args["sv_aligns"],
                                                                 c,

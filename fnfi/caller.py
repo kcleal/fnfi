@@ -4,6 +4,7 @@ import networkx as nx
 import numpy as np
 import assembler
 import data_io
+import pandas as pd
 
 
 def echo(*args):
@@ -149,15 +150,10 @@ def separate_mixed(break_points_dict, thresh=500):
                 for name, flg, pos in break_points_dict.keys():
                     if flg & 2048:
                         supps.add((name, bool(flg & 64)))
-                        # if name == 'HISEQ2500-10:539:CAV68ANXX:7:2107:1342:6170':
-                        #     echo((name, bool(flg & 64)))
+
                 # Get only reads that are split i.e. primary + supplementary pairs
                 break_points_dict = {k: v for k, v in break_points_dict.items() if (k[0], bool(k[1] & 64)) in supps}
                 break_points = break_points_dict.items()
-                # for item in break_points:
-                #     if item[0] == 'HISEQ2500-10:539:CAV68ANXX:7:2107:1342:6170':
-                #         echo("breakpoints", break_points)
-                #         break
 
                 if len(break_points) == 1:
                     c1 = break_points_dict
@@ -360,7 +356,7 @@ def breaks_from_one_side(node_set, reads, bam):
     return pre_process_breakpoints(tup).values()  # Don't return whole dict
 
 
-def single(parent_graph, bm, reads, bam, insert_size, insert_stdev, _debug_k, roi=None):
+def single(parent_graph, bm, reads, bam, insert_size, insert_stdev, clip_length, _debug_k, roi=None):
 
     bmnodes = list(bm.nodes())
 
@@ -394,7 +390,17 @@ def single(parent_graph, bm, reads, bam, insert_size, insert_stdev, _debug_k, ro
         echo("dict_b", dict_b)
 
     info, contrib_reads = call_break_points(dict_a.values(), dict_b.values())
-    info["linked"] = 0  # Only 1 region so no linkage defined
+    info["linked"] = 0
+
+    if assembl1 is not None and len(assembl1) > 0 and assembl2 is not None and len(assembl2) > 0:
+        assembl1, assembl2 = assembler.link_pair_of_assemblies(assembl1, assembl2, clip_length)
+
+        info["linked"] = 1
+        info["mark"] = assembl1["mark"]
+        info["mark_seq"] = assembl1["mark_seq"]
+        info["mark_ed"] = assembl1["mark_ed"]
+        info["templated_ins_info"] = assembl1["templated_ins_info"]
+        info["templated_ins_len"] = assembl1["templated_ins_len"]
 
     info["total_reads"] = len(contrib_reads)
     both = list(dict_a.keys()) + list(dict_b.keys())
@@ -416,17 +422,12 @@ def single(parent_graph, bm, reads, bam, insert_size, insert_stdev, _debug_k, ro
         if "contig" in assembl2 and (assembl2["left_clips"] > 0 or assembl2["right_clips"] > 0):
             info["contig2"] = assembl2["contig"]
             info["contig2_rev"] = assembl2["contig_rev"]
-    #         if ass["left_clips"] > ass["right_clips"]:
-    #             info["posA"] = ass["ref_start"]
-    #         else:
-    #             info["posA"] = ass["ref_end"]
-    #         info["chrA"] = ass["bamrname"]
 
     info.update(score_reads(bmnodes[0], reads))
 
     if roi in reads:
         echo("info", info)
-
+    # echo(info)
     return info
 
 
@@ -438,7 +439,6 @@ def one_edge(parent_graph, bm, reads, bam, clip_length, from_func=None, roi=None
     assert len(bm.nodes()) == 2
     ns = list(bm.nodes())
 
-    # assembler.base_assemble(dict_a_subg, reads, bam)
     sub = parent_graph.subgraph(ns[0])
     sub2 = parent_graph.subgraph(ns[1])
 
@@ -463,10 +463,15 @@ def one_edge(parent_graph, bm, reads, bam, clip_length, from_func=None, roi=None
     info, contrib_reads = call_break_points(tuple_a, tuple_b)
 
     info["linked"] = 0
+
     if as1 is not None and len(as1) > 0 and as2 is not None and len(as2) > 0:
         as1, as2 = assembler.link_pair_of_assemblies(as1, as2, clip_length)
-        if as1["linked"] == 1:
-            info["linked"] = 1
+
+        info["mark"] = as1["mark"]
+        info["mark_seq"] = as1["mark_seq"]
+        info["mark_ed"] = as1["mark_ed"]
+        info["templated_ins_info"] = as1["templated_ins_info"]
+        info["templated_ins_len"] = as1["templated_ins_len"]
 
     if "result" not in bm[ns[0]][ns[1]]:
         if roi in reads:
@@ -490,7 +495,6 @@ def one_edge(parent_graph, bm, reads, bam, clip_length, from_func=None, roi=None
         info["contig2"] = as2["contig"]
         info["contig2_rev"] = as2["contig_rev"]
 
-
     if roi in reads:
         echo("tuple_a", tuple_a)
         echo("tuple_b", tuple_b)
@@ -498,28 +502,25 @@ def one_edge(parent_graph, bm, reads, bam, clip_length, from_func=None, roi=None
         echo("as1", as1)
         echo("as2", as2)
         echo("info", info)
-
+    # echo(info)
     return info
 
 
 def multi(parent_graph, bm, reads, bam, clip_length, roi=None):
     c = 0
     for u, v in bm.edges():
-        # rd = reads_from_bm_nodeset([u, v], reads)
 
         rd_u = reads_from_bm_nodeset([u], reads)
         rd_v = reads_from_bm_nodeset([v], reads)
 
         # Get intersection; reads that are found in both nodes
         rd = {x: rd_u[x] for x in rd_u if x in rd_v}
-
         if roi in reads:
             echo("u", u)
             echo("v", v)
             if roi in rd:
                 echo(".", rd.keys())
         sub = bm.subgraph([u, v])
-        # echo(c, len(rd), sorted([i.split(":")[-1] for i in rd.keys()]))
         c += 1
         yield one_edge(parent_graph, sub, rd, bam, clip_length, from_func="multi", roi=roi)
 
@@ -549,21 +550,11 @@ def call_from_block_model(bm_graph, parent_graph, reads, bam, clip_length, inser
 
         elif len(bm.nodes()) == 1:
             # Single isolated node
-            yield single(parent_graph, bm, rds, bam, insert_size, insert_stdev, _debug_k, roi=roi)
+            yield single(parent_graph, bm, rds, bam, insert_size, insert_stdev, clip_length, _debug_k, roi=roi)
 
         elif len(bm.edges()) == 1:
             # Easy case
             yield one_edge(parent_graph, bm, rds, bam, clip_length, from_func="not multi", roi=roi)
-
-
-def call_to_string(call_info):
-    # Tab delimited string, in a bedpe style
-    k = ["chrA", "posA", "chrB", "posB", "svtype", "join_type", "cipos95A", "cipos95B",
-         "DP", "DApri", "DN", "NMpri", "NP", "DAsupp",
-         "NMsupp", "maxASsupp", "contig", "contig2", "pe", "supp", "sc", "block_edge", "MAPQpri", "MAPQsupp", "raw_reads_10kb",
-         "kind", "connectivity", "linked", "Prob"]
-
-    return "\t".join([str(call_info[ky]) if ky in call_info else str(None) for ky in k]) + "\n"
 
 
 def calculate_coverage(chrom, start, end, region_depths):
@@ -573,24 +564,6 @@ def calculate_coverage(chrom, start, end, region_depths):
         start = 0
     end = ((int(end) / 100) * 100) + 100
     return [region_depths[(chrom, i)] for i in range(start, end, 100) if (chrom, i) in region_depths]
-
-
-def calculate_prob_from_model(r, models):
-    features = ['cipos95A', 'cipos95B', 'DP', 'DApri', 'DN', 'NMpri', 'NP', 'DAsupp', 'NMsupp', 'maxASsupp',
-                'contig1_exists', 'both_contigs_exist', 'contig2_exists', 'pe', 'supp', 'sc', 'block_edge', 'MAPQpri',
-                'MAPQsupp', 'raw_reads_10kb']
-    if not models:
-        return 1
-    r["contig1_exists"] = 1 if (str(r["contig"]) != "None") else 0
-    r["contig2_exists"] = 1 if (str(r["contig2"]) != "None") else 0
-    r["both_contigs_exist"] = r["contig1_exists"] == 1 and r["contig2_exists"] == 1
-    X = np.array([[r[f] for f in features]])
-    kind = r["kind"]
-    if kind not in models:
-        probs = models["hemi-regional"].predict_proba(X)
-    else:
-        probs = models[kind].predict_proba(X)
-    return np.round(1 - probs[:, 0][0], 4)
 
 
 def get_raw_cov_information(r, regions, window_info, regions_depth, model):
@@ -660,8 +633,46 @@ def get_raw_cov_information(r, regions, window_info, regions_depth, model):
     r["raw_reads_10kb"] = reads_10kb
     r["connectivity"] = window_info["connectivity"]
 
-    r["Prob"] = calculate_prob_from_model(r, model)
-
-    return call_to_string(r)
+    return r
 
 
+def calculate_prob_from_model(all_rows, models):
+
+    if len(all_rows) == 0:
+        return
+
+    df = pd.DataFrame.from_records(all_rows).sort_values(["kind", "chrA", "posA"])
+
+    features = ['cipos95A', 'cipos95B', 'DP', 'DApri', 'DN', 'NMpri', 'NP', 'DAsupp', 'NMsupp', 'maxASsupp',
+                'contig1_exists', 'both_contigs_exist', 'contig2_exists', 'pe', 'supp', 'sc', 'block_edge', 'MAPQpri',
+                'MAPQsupp', 'raw_reads_10kb']
+    if not models:
+        df["Prob"] = [1] * len(df)  # Nothing to be done
+        return df
+
+    df["contig1_exists"] = [1 if str(c) != "None" else 0 for c in df["contig"]]
+    df["contig2_exists"] = [1 if str(c) != "None" else 0 for c in df["contig2"]]
+    df["both_contigs_exist"] = [1 if i == 1 and j == 1 else 0 for i, j in zip(df["contig1_exists"],
+                                                                              df["contig2_exists"])]
+
+    prob = []
+    for idx, grp in df.groupby("kind"):
+
+        X = grp[features].astype(float)
+        if idx in models:
+            clf = models[idx]
+            probs = clf.predict_proba(X)
+            prob_true = 1 - probs[:, 0]
+            prob += list(prob_true)
+
+        else:
+            # Choose highest probability out of trained models
+            pp = []
+            for k in models.keys():
+                pp.append(1 - models[k].predict_proba(X)[:, 0])
+            a = np.array(pp)
+            max_p = np.max(a, axis=0)
+            prob += list(max_p)
+
+    df["Prob"] = prob
+    return df.sort_values(["kind", "Prob"], ascending=[True, False])

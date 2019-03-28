@@ -364,14 +364,14 @@ if __name__ == "__main__":
 
     #input_stream_alignments.process_reads(df)
     k = defaults
-    k["sv_aligns"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/output/DB120.hq_all.fnfi.srt.bam"
+    k["sv_aligns"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/output/DB120.fnfi.srt.bam"  # DB120.hq_all.fnfi.srt.bam
     # k["raw_aligns"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/Event_simulator/Events/bwa.0.2.srt.bam"
     k["include"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/test/include_tels.bed"
     k["svs_out"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/DB120.test.csv"
     k["procs"] = 1
+    #k["model"] = "None"
     k["model"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/trained_fnfi2_clf2_extratrees_model.pkl"
     k["I"] = "142,187"
     #name = "fufi2_id{}".format("0.2")
 
     cluster.cluster_reads(k)
-    #call("diff /Users/kezcleal/Documents/Data/fusion_finder_development/Split_read_simulator/paired_end_with_one_split/pairs.fnfi.unsrt.sam /Users/kezcleal/Documents/Data/fusion_finder_development/Split_read_simulator/sv_gen_mapped/test.fnfi.unsrt.sam", shell=True)
