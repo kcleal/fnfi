@@ -1,6 +1,3 @@
-"""
-Iterate over the output from last and send data object back to the pair_reads_from_LAST script
-"""
 
 from collections import defaultdict
 import os
@@ -15,7 +12,7 @@ def mk_dest(d):
         try:
             os.mkdir(d)
         except:
-            raise OSError("Couldn't create directory")
+            raise OSError("Couldn't create directory {}".format(d))
 
 
 def make_template(rows, args, max_d, last_seen_chrom, fq):
