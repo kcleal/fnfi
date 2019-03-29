@@ -541,7 +541,7 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=(), w
 
         for r in infile.fetch(*window):
 
-            if len(r.cigar) == 0 or r.flag & 4:
+            if len(r.cigar) == 0 or r.flag & 1028:  # Unmapped or duplicate
                 continue
 
             n1 = (r.qname, r.flag, r.pos)
@@ -949,6 +949,8 @@ def get_region_depth(cm, inputbam, dest, unique_file_id, pad=10000, delete=True)
             k = [chrom] * len(starts)
             lines = ["\t".join(item) + "\n" for item in zip(k, starts, ends)]
             depthf.writelines(lines)
+
+    # Note coverage includes all input reads, duplicates allowed for now
     call("samtools bedcov {t1} {bam} > {t2}".format(bam=inputbam, t1=temp_1, t2=temp_2), shell=True)
 
     depth_d = {}
@@ -1073,7 +1075,7 @@ def filter_potential(input_events, tree):
 
 
 def merge_events(potential, max_dist, tree, seen, try_rev=False, pick_best=False):
-
+    # Merging is not efficient currently.
     if len(potential) <= 1:
         return potential, seen
 
@@ -1085,9 +1087,6 @@ def merge_events(potential, max_dist, tree, seen, try_rev=False, pick_best=False
         ei = potential[idx]
         i_id = ei["event_id"]
         id_to_event_index[i_id] = idx
-
-        # if ei["posB"] == 46696903:
-        #     echo("ei in merge_events", ei)
 
         for jdx in range(len(potential)):
 
@@ -1125,27 +1124,45 @@ def merge_events(potential, max_dist, tree, seen, try_rev=False, pick_best=False
                                 loci_same = True
 
             if "contig" in ei and "contig" in ej:
-                ci, cj = str(ei["contig"]), str(ej["contig"])  # .upper()
+                ci, cj, cj_rev = str(ei["contig"]), str(ej["contig"]), str(ej["contig_rev"])
+                ci = "" if ci == "None" else ci
+                cj = "" if cj == "None" else cj
+                cj_rev = "" if cj_rev == "None" else cj_rev
+
+                ci2, cj2, cj2_rev = str(ei["contig2"]), str(ej["contig2"]), str(ej["contig2_rev"])
+                ci2 = "" if ci2 == "None" else ci2
+                cj2 = "" if cj2 == "None" else cj2
+                cj2_rev = "" if cj2_rev == "None" else cj2_rev
+
+                any_ci = len(ci) > 0 or len(ci2) > 2
+                any_cj = len(cj) > 0 or len(cj2) > 2
             else:
                 continue
 
-            # Check if contigs match
             if loci_similar:
-                # Both have contigs and map to about the same location
-                if ci != "None" and len(ci) > 0 and cj != "None" and len(cj) > 0 and loci_same:
+                if any_ci and any_cj and loci_same:  # Try and match contigs
 
-                    # Each breakpoint can have a different assembly, only check for match if contigs overlap
-                    idt = assembler.check_contig_match(ci, cj)
-                    if idt == 1:
-                        G.add_edge(i_id, j_id)
+                    for cont1, cont2, cont2_rev in ((ci, cj, cj_rev), (ci2, cj2, cj2_rev),
+                                                    (ci, cj2, cj2_rev), (ci2, cj, cj_rev)):
 
-                    elif try_rev:
-                        rc_ej = str(ej["contig_rev"])
-                        assembler.check_contig_match(ci, rc_ej)
-                        if assembler.check_contig_match(ci, rc_ej) == 1:
-                            G.add_edge(i_id, j_id)
+                        if len(cont1) > 0 and len(cont2) > 0:
 
-                # Only merge loci if they are not both within --include regions
+                            # Each breakpoint can have a different assembly, only check for match if contigs overlap
+                            idt = assembler.check_contig_match(ci, cj, diffs=15, return_int=True)
+                            if idt == 1:
+                                G.add_edge(i_id, j_id)
+                                break
+
+                            elif try_rev and cont2_rev:
+                                if assembler.check_contig_match(cont1, cont2_rev, diffs=15, return_int=True) == 1:
+                                    G.add_edge(i_id, j_id)
+                                    break
+
+                # No contigs to match, merge anyway
+                elif not any_ci and not any_cj and loci_same:
+                    G.add_edge(i_id, j_id)
+
+                # Only merge loci if they are not both within --include regions. chrA:posA only needs checking
                 elif not (data_io.intersecter(tree, ei["chrA"], ei["posA"], ei["posA"] + 1) and
                           data_io.intersecter(tree, ei["chrB"], ei["posB"], ei["posB"] + 1)):
                     G.add_edge(i_id, j_id)
@@ -1154,19 +1171,10 @@ def merge_events(potential, max_dist, tree, seen, try_rev=False, pick_best=False
     for item in potential:  # Add singletons, non-merged
         if not G.has_node(item["event_id"]):
             found.append(item)
-            # if item["event_id"] == 0:
-            #     echo("found a singleton non-merged")
-            #     echo("item", item)
 
     for grp in nx.connected_component_subgraphs(G):
 
         c = [potential[id_to_event_index[n]] for n in grp.nodes()]
-
-        # if 0 in grp.nodes():
-        #     echo("component nodes", grp.nodes())
-        #     echo("merging with:")
-        #     for item in c:
-        #         echo("{}:{} {}:{}".format(item["chrA"], item["posA"], item["chrB"], item["posB"]))
 
         best = sorted(c, key=lambda x: sum([x["pe"], x["supp"]]), reverse=True)
         w0 = best[0]["pe"] + best[0]["supp"]  # Weighting for base result
@@ -1288,6 +1296,8 @@ def get_prelim_events(G, read_buffer, cluster_map, positions_map, infile, args, 
 def cluster_reads(args):
     t0 = time.time()
 
+    unique_file_id = str(uuid.uuid4())  # unique_file_id = "fnfi_tmp"
+
     try:
         model = pickle.load(open(args["model"]))  # Todo only add the dataset no model, returan the model (save space)
         click.echo("Model loaded from {}".format(args["model"]), err=True)
@@ -1307,6 +1317,8 @@ def cluster_reads(args):
 
     sample_name = os.path.splitext(os.path.basename(args["sv_aligns"]))[0]
 
+    conts_out = args["dest"] + "/" + sample_name + ".contigs"
+
     if "insert_median" not in args and "I" in args:
         im, istd = map(float, args["I"].split(","))
         args["insert_median"] = im
@@ -1324,7 +1336,7 @@ def cluster_reads(args):
 
     # Todo add strandadness
 
-    unique_file_id = str(uuid.uuid4())  # unique_file_id = "fnfi_tmp"
+
     regions = data_io.overlap_regions(args["include"])
 
     cluster_map, positions_map, regions_depth, _debug_k = get_regions_windows(args, unique_file_id, infile, max_dist,
@@ -1363,6 +1375,9 @@ def cluster_reads(args):
         classified_events_df["sample"] = [sample_name]*len(classified_events_df)
         classified_events_df["id"] = range(len(classified_events_df))
         classified_events_df = classified_events_df.rename(columns={"contig": "contigA", "contig2": "contigB"})
+
+        # if args["reference"] != str("None"):
+        #     caller.map_contigs(classified_events_df, args, conts_out)
         classified_events_df[k].to_csv(outfile, index=False)
 
     click.echo("call-events {} complete, n={}, {} h:m:s".format(args["sv_aligns"],

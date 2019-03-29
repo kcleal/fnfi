@@ -163,7 +163,7 @@ def base_assemble(g, reads, bam, iid=0):
     return res
 
 
-def check_contig_match(a, b, diffs=8, ol_length=21, supress_seq=True):
+def check_contig_match(a, b, diffs=8, ol_length=21, supress_seq=True, return_int=False):
 
     query = StripedSmithWaterman(str(a), suppress_sequences=supress_seq)
     alignment = query(str(b))
@@ -185,7 +185,12 @@ def check_contig_match(a, b, diffs=8, ol_length=21, supress_seq=True):
     if diff > diffs:  # e.g. 2 mis-matches + 2 unaligned overhanging bits
         return 0
     else:
-        return (qs, qe, als, ale, alignment.cigar, alignment.aligned_query_sequence, alignment.aligned_target_sequence)
+        if return_int:
+            return 1
+        return (qs, qe, als, ale,
+                alignment.cigar,
+                alignment.aligned_query_sequence,
+                alignment.aligned_target_sequence)
 
 
 def get_upper_start_end(a):
@@ -199,7 +204,7 @@ def get_upper_start_end(a):
     return a_start, a_end + 1
 
 
-def get_mark_result(res, insertion, a, b, sa, sb, a_start, a_end, b_start, b_end):
+def get_mark_result(res, insertion, a, b, sa, sb, a_start, a_end, b_start, b_end, b_rev=False):
     if insertion < 0:
         res["mark"] = "microh"
     else:
@@ -226,12 +231,17 @@ def get_mark_result(res, insertion, a, b, sa, sb, a_start, a_end, b_start, b_end
 
         aqs = aln.aligned_query_sequence
         tqs = aln.aligned_target_sequence
-        edit_dis = len([1 for i, j in zip(aqs, tqs) if i.upper() != j])
-        v = "cont{}:pos={}:ed={}:align={}".format(cont, aln.target_begin, edit_dis, aqs)
-        l = aln.target_end_optimal - aln.target_begin + 1
+        if tqs:
+            edit_dis = len([1 for i, j in zip(aqs, tqs) if i.upper() != j])
+            if b_rev and cont == "B":
 
-        res["templated_ins_info"] = v
-        res["templated_ins_len"] = l
+                v = "contB_rev:pos={}:ed={}:align={}".format(aln.target_begin, edit_dis, aqs)
+            else:
+                v = "cont{}:pos={}:ed={}:align={}".format(cont, aln.target_begin, edit_dis, aqs)
+            l = aln.target_end_optimal - aln.target_begin + 1
+
+            res["templated_ins_info"] = v
+            res["templated_ins_len"] = l
 
     return res
 
@@ -279,10 +289,20 @@ def link_pair_of_assemblies(a, b, clip_length):
         m = check_contig_match(a["contig"], b["contig_rev"], supress_seq=False)
         if m != 0:
             a["linked"] = 1
-            h = get_microh_or_ins(m)
+            h = get_microh_or_ins(m, b_rev=True)
         else:
             a["linked"] = 0
             h = {"mark": "None", "mark_seq": "", "mark_ed": "", "templated_ins_info": "",
                  "templated_ins_len": ""}
     a.update(h)
     return a, b
+
+
+if __name__ == "__main__":
+
+    a = "cgcccgcccaggtctgacctcagaagaactctgctccgccttcgcaatacccccgaagtctgtgcagagaagaacgcagctccgccctggcgatgctccctAACCCTAACCCTAACCCTAACCCTAACCCTTCCTCAGCCTCTCAACCTGCTTGGGTTACAGGTATGAGCCCGGGTGCCTAGCCAAACATTCCATTTTATATGTATATGCTAGGAAT"
+    b = "ctgtgcagagaagaacgcagctccgccctggcgatgctccctAACCCTAACCCTAACCCTAACCCTAACCCTTCCTCAGCCTCTCAACCTGCTTGGGTTACAGGTATGAGCCCGGGTGCCTAGCCAAACATTCCATTTTATATGTATATGCTAGGAATGAATAATCT"
+    c = "attcctagcatatacatataaaatggaatgtttggctaggcacccgggctcatacctgtaacccaagcaggttgagaggctgaggaagggttagggttagggttagggttagggttaggGAGCATCGCCAGGGCGGAGCTGCGTTCTTCTCTGCACAGACTTCGGGGGTATTGCGAAGGCGGAGCAGAGTTCTTCTGAGGTCAGACCTGGGCGGGCG"
+    print check_contig_match(a, b, supress_seq=False)
+    print get_microh_or_ins(check_contig_match(a, reverse_complement(c, len(c)), diffs=8, supress_seq=False))
+    pass

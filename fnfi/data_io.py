@@ -210,9 +210,6 @@ def fq_getter(reader, name, args, fbuffer):
             return fqlines
         else:
             fbuffer[q] = fqlines
-    else:
-        click.echo("WARNING: fastq not found", err=True)
-        return None, None
 
 
 def iterate_mappings(args, version):
@@ -294,36 +291,6 @@ if __name__ == "__main__":
     # print template["data"].astype(int)
     template = {'inputfq': (('chr5.76630308-76630338.5272014-5272109:76630645-76630770.76630645-76630770', 'ACACTTGCAATGAAAAGGGGGGAGCAATTTCCTTTTCTGTAGTTGCTTATCTCTTTTCGATCTGAGGCCGTGAAAATACTAATCACCCAGTAATGGCACAGCACAATTTTAATGACAAGGACTCT', 'EFFGG>FAGFFGFFDGGFGGEEGBGF8GFGGEGGDGEDGAGFECF/DFGEGFGGF$;GG??EDGFGEGFGGGF9EGFDGG<@AFGF?BFBGFGGGGGGGG=1AED>F:EE+=GEGCA6(4>C<GC'), ('chr5.76630308-76630338.5272014-5272109:76630645-76630770.76630645-76630770', 'GTAGACATAGCCCTTTCCTCTTCTCCAGGAAAGCTTTGTAGGATAGAGAAAATAAGAGTACTGGCAATTGAGAAGTTTGTGGTCCAAGAAAAGTAATAGGAACAAGAAAATGACAAAAATTATCA', 'FGGGDEGGGDCGGCAGGF4;GFEGFFGAFGGCGFGGDGF=FGDGEGEBFGDGGE2GGGFG=GGFGE??E@GFGGFCGGGBGGFGGFD;GDE,2>FEA=GGF.,=AG4C?.FGD@F=:;;A4DEF$')), 'paired_end': 1, 'bias': 1.0, 'fq_read2_seq': 0, 'isize': (210.0, 175.0), 'read2_q': 0, 'max_d': 1085.0, 'read2_seq': 0, 'read2_length': 0, 'passed': 0, 'replace_hard': 1, 'read2_reverse': 0, 'inputdata': [(['chr5.76630308-76630338.5272014-5272109:76630645-76630770.76630645-76630770', '99', 'chr5', '5272015', '254\t95=30H\t*\t0\t0\tACACTTGCAATGAAAAGGGGGGAGCAATTTCCTTTTCTGTAGTTGCTTATCTCTTTTCGATCTGAGGCCGTGAAAATACTAATCACCCAGTAATG\tEFFGG>FAGFFGFFDGGFGGEEGBGF8GFGGEGGDGEDGAGFECF/DFGEGFGGF$;GG??EDGFGEGFGGGF9EGFDGG<@AFGF?BFBGFGGG\tNM:i:0\tAS:i:94\tEV:Z:4.6e-46\n'], 0), (['chr5.76630308-76630338.5272014-5272109:76630645-76630770.76630645-76630770', '99', 'chr5', '76630309', '0\t95H30=\t*\t0\t0\tGCACAGCACAATTTTAATGACAAGGACTCT\tGGGGG=1AED>F:EE+=GEGCA6(4>C<GC\tNM:i:0\tAS:i:30\tEV:Z:4.1e-07\n'], 0), (['chr5.76630308-76630338.5272014-5272109:76630645-76630770.76630645-76630770', '147', 'chr5', '76630647', '254\t1H124=\t*\t0\t0\tGATAATTTTTGTCATTTTCTTGTTCCTATTACTTTTCTTGGACCACAAACTTCTCAATTGCCAGTACTCTTATTTTCTCTATCCTACAAAGCTTTCCTGGAGAAGAGGAAAGGGCTATGTCTAC\tFED4A;;:=F@DGF.?C4GA=,.FGG=AEF>2,EDG;DFGGFGGBGGGCFGGFG@E??EGFGG=GFGGG2EGGDGFBEGEGDGF=FGDGGFGCGGFAGFFGEFG;4FGGACGGCDGGGEDGGGF\tNM:i:0\tAS:i:124\tEV:Z:1.2e-65\n'], 0)], 'fq_read1_q': 0, 'fq_read2_q': 0, 'read1_reverse': 0, 'read1_q': 0, 'read1_length': 0, 'name': 'chr5.76630308-76630338.5272014-5272109:76630645-76630770.76630645-76630770', 'fq_read1_seq': 0, 'match_score': 1.0, 'read1_seq': 0, 'last_seen_chrom': 'chr5', 'score_mat': {}, 'pairing_params': (100.0, 17.0, 100.0, 1.0, 3.0, 2.0, 9.0)}
 
-    #emplate["inputdata"] = [map(str, i) for i in template["inputdata"]]
-    # template2 = make_template(sam_ol, args, 2000, "chr22", (0, 0))
-
     t0 = time.time()
     c_io_funcs.sam_to_array(template)
     v = time.time() - t0
-
-    # print v0, v, v0 / v
-    # print [v == v2 for v, v2 in zip(template.values(), template2.values())]
-
-    # res = pairing.process(template)
-    #
-    # t0 = time.time()
-    # apply_filter(template, *res)
-    # v0 = time.time() - t0
-    #
-    # res2 = pairing.process(template2)
-    # t0 = time.time()
-    # c_io_funcs.apply_filter(template2, *res2)
-    # v1 = time.time() - t0
-    #
-    # # print v0 / v1
-    #
-    # t0 = time.time()
-    # sam = samclips.fixsam(template)
-    # v0 = time.time() - t0
-    #
-    #
-    # t0 = time.time()
-    # sam = c_samflags.fixsam(template2)
-    # v1 = time.time() - t0
-
-    # print v0 / v1

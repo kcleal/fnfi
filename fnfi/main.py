@@ -8,6 +8,7 @@ import find_pairs
 import cluster
 import input_stream_alignments
 import data_io
+import pkg_resources
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
@@ -44,12 +45,14 @@ defaults = {
             "max_cov": 150,
             "buffer_size": 1000000,
             "I": "210,175",
+            "mark_dups": "True",
             "model": None
             #"model": os.path.dirname(os.path.realpath(__file__)) + "/fnfi_model.pkl"
             }
 
 align_args = {}
 
+version = pkg_resources.require("fnfi")[0].version
 
 def pipeline(kwargs):  # Todo add a verbosity option (keep some or all of temp files)
     t0 = time.time()
@@ -151,12 +154,15 @@ def launch_external_mapper(kwargs):
 
 def sort_and_index(kwargs):
     """Convenience function to sort and index a sam file, then remove the input sam file"""
-    c = "samtools view -uh {fix}.sam | samtools sort -@ {p} -o {fix}.srt.bam - ; samtools index -@ {p} {fix}.srt.bam"
+    c = "samtools view -uh {fix}.sam | samtools fixmate | \
+    samblaster --ignoreUnmated | \
+    samtools sort -@ {p} -o {fix}.srt.bam - ; \
+    samtools index -@ {p} {fix}.srt.bam"
     c = c.format(fix=kwargs["out_pfix"], p=kwargs["procs"])
     click.echo(c, err=True)
     check_call(c, shell=True)
     os.remove(kwargs["output"])
-
+    # quit()
 
 # Interface:
 # ----------------------------------------------------------------------------------------------------------------------
@@ -202,7 +208,7 @@ $4 threads to use""", default=None, type=click.Path(exists=True))
               default=defaults["I"], type=str)
 @click.pass_context
 def run_command(ctx, **kwargs):
-    """Run the fusion-finder pipeline."""
+    """Run the fusion-finder pipeline."""  # Todo echo fnfi version on command line invocation of each tool
     ctx = apply_ctx(ctx, kwargs)
     pipeline(ctx.obj)
 
@@ -277,8 +283,12 @@ def fnfi_aligner(ctx, **kwargs):
               default=None, type=click.Path())
 @click.option("--buffer-size", help="Number of alignments to load into buffer", default=defaults["buffer_size"],
               type=int, show_default=True)
+@click.option("--mark-dups", help="Use samblaster to mark duplicates", default=defaults["mark_dups"],
+              type=click.Choice(["True", "False"]), show_default=True)
 @click.option("--model", help="A model trained with fnfi train", default=defaults["model"],
               type=click.Path(), show_default=True)
+@click.option('--reference', help="If provided, contigs will be mapped using bwa", default=None,
+              type=click.Path(exists=True), required=False)
 @click.pass_context
 def call_events(ctx, **kwargs):
     """Clusters reads into SV-events. Takes as input the original .bam file, and a .bam file with only sv-like reads."""
@@ -364,7 +374,7 @@ if __name__ == "__main__":
 
     #input_stream_alignments.process_reads(df)
     k = defaults
-    k["sv_aligns"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/output/DB120.fnfi.srt.bam"  # DB120.hq_all.fnfi.srt.bam
+    k["sv_aligns"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/output/DB120.hq_all.fnfi.srt.rmdup.bam"  # DB120.fnfi.srt.rmdup.bam DB120.hq_all.fnfi.srt.bam  # DB120.fnfi.srt.bam  # DB120.hq_all.fnfi.srt.rmdup.bam
     # k["raw_aligns"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/Event_simulator/Events/bwa.0.2.srt.bam"
     k["include"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/test/include_tels.bed"
     k["svs_out"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/DB120.test.csv"
@@ -372,6 +382,8 @@ if __name__ == "__main__":
     #k["model"] = "None"
     k["model"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/trained_fnfi2_clf2_extratrees_model.pkl"
     k["I"] = "142,187"
+    k["dest"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/"
+    k["reference"] = "/Users/kezcleal/Documents/Data/db/hg38/hg38.fa"
     #name = "fufi2_id{}".format("0.2")
 
     cluster.cluster_reads(k)

@@ -5,6 +5,8 @@ import numpy as np
 import assembler
 import data_io
 import pandas as pd
+from subprocess import call
+import os
 
 
 def echo(*args):
@@ -676,3 +678,34 @@ def calculate_prob_from_model(all_rows, models):
 
     df["Prob"] = prob
     return df.sort_values(["kind", "Prob"], ascending=[True, False])
+
+
+def map_contigs(df, args, conts_out):
+    # Experimental
+    fasta_lines = []
+    for idx, r in df.iterrows():
+
+        rid = "1"
+        name = ">{}:{}-{}:{}/".format(r["chrA"], r["posA"], r["chrB"], r["posB"])
+        if r["contigA"] != None and len(r["contigA"]) > 0:
+            fasta_lines.append("{}{}\n{}\n".format(name, rid, r["contigA"]))
+            rid = "2"
+        if r["contigB"] != None and len(r["contigB"]) > 0:
+            fasta_lines.append("{}{}\n{}\n".format(name, rid, r["contigB"]))
+
+    f = conts_out + ".fasta"
+    with open(f, "w") as fa:
+        fa.writelines(fasta_lines)
+    o = conts_out
+    if args["include"] is not None:
+        include = "--include {}".format(args["include"])
+    else:
+        include = ""
+    call("bwa mem -a -p -t{procs} {ref} {f} | \
+    fnfi align {ref} {include} --paired False - | samtools view -bh - > {out}.temp.bam; \
+    samtools sort -@{procs} -o {out}.bam {out}.temp.bam".format(procs=args["procs"], ref=args["reference"], out=o, f=f,
+                                                                include=include),
+         shell=True)
+    call("samtools index -@{procs} {out}.bam".format(procs=args["procs"], out=o), shell=True)
+    os.remove(conts_out + ".fasta")
+    os.remove("{out}.temp.bam".format(out=o))
