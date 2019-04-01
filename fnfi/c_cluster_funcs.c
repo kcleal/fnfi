@@ -2095,47 +2095,34 @@ static PyObject *__pyx_codeobj__28;
 /* "fnfi/c_cluster_funcs.pyx":6
  * cimport cpython.array
  * 
- * cdef mult(float a, float b):             # <<<<<<<<<<<<<<
+ * cdef float mult(float a, float b) nogil:             # <<<<<<<<<<<<<<
  *     return a * b
  * 
  */
 
-static PyObject *__pyx_f_4fnfi_15c_cluster_funcs_mult(float __pyx_v_a, float __pyx_v_b) {
-  PyObject *__pyx_r = NULL;
-  __Pyx_RefNannyDeclarations
-  PyObject *__pyx_t_1 = NULL;
-  __Pyx_RefNannySetupContext("mult", 0);
+static float __pyx_f_4fnfi_15c_cluster_funcs_mult(float __pyx_v_a, float __pyx_v_b) {
+  float __pyx_r;
 
   /* "fnfi/c_cluster_funcs.pyx":7
  * 
- * cdef mult(float a, float b):
+ * cdef float mult(float a, float b) nogil:
  *     return a * b             # <<<<<<<<<<<<<<
  * 
  * 
  */
-  __Pyx_XDECREF(__pyx_r);
-  __pyx_t_1 = PyFloat_FromDouble((__pyx_v_a * __pyx_v_b)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 7, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_1);
-  __pyx_r = __pyx_t_1;
-  __pyx_t_1 = 0;
+  __pyx_r = (__pyx_v_a * __pyx_v_b);
   goto __pyx_L0;
 
   /* "fnfi/c_cluster_funcs.pyx":6
  * cimport cpython.array
  * 
- * cdef mult(float a, float b):             # <<<<<<<<<<<<<<
+ * cdef float mult(float a, float b) nogil:             # <<<<<<<<<<<<<<
  *     return a * b
  * 
  */
 
   /* function exit code */
-  __pyx_L1_error:;
-  __Pyx_XDECREF(__pyx_t_1);
-  __Pyx_AddTraceback("fnfi.c_cluster_funcs.mult", __pyx_clineno, __pyx_lineno, __pyx_filename);
-  __pyx_r = 0;
   __pyx_L0:;
-  __Pyx_XGIVEREF(__pyx_r);
-  __Pyx_RefNannyFinishContext();
   return __pyx_r;
 }
 

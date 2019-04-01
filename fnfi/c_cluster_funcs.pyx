@@ -3,7 +3,7 @@
 
 cimport cpython.array
 
-cdef mult(float a, float b):
+cdef float mult(float a, float b) nogil:
     return a * b
 
 

@@ -85,12 +85,8 @@ def base_assemble(g, reads, bam, iid=0):
     """
     # Note supplementary are included in assembly; helps link regions
     # Get reads of interest
-
     rd = [reads[n[0]][(n[1], n[2])] for n in g.nodes() if n[0] in reads]
 
-    #
-    # rnames = set([r.qname for r in rd])
-    # roi = "simulated_reads.intra.0.2-id2_A_chr21:46696380_B_chr21:46697291-69"
     G = nx.DiGraph()
 
     strand_d = {}
