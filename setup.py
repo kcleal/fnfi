@@ -26,11 +26,18 @@ extensions = [
             language="c",
             ),
 
+    Extension(
+            "fnfi.c_cluster_funcs",
+            ["fnfi/c_cluster_funcs.pyx"],
+            library_dirs=[numpy.get_include()],
+            language="c",
+            ),
+
 ]
 print("Found packages", find_packages(where="."))
 setup(
     name="fnfi",
-    version='0.9.4',
+    version='0.9.5',
     packages=find_packages(where="."),
     ext_modules=cythonize(extensions),
     include_dirs=[numpy.get_include()],
@@ -40,7 +47,7 @@ setup(
         'numpy',
         'pandas',
         'pysam',
-        'networkx',
+        'networkx==1.9',
         'scikit-learn',
         'ncls',
         'scikit-bio==0.4.2'

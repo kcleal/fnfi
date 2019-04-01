@@ -19,6 +19,7 @@ from sklearn.neighbors import KDTree
 import data_io
 import assembler
 from graph_funcs import blockmodel
+from c_cluster_funcs import alignments_match
 
 try:
     from StringIO import StringIO
@@ -173,67 +174,6 @@ class Scoper(object):
                 yield t, False, False
 
         yield None, None, None  # When not enough reads are in scope
-
-
-def extent(a):
-
-    start = a.pos
-    end = a.pos + len(a.seq)
-    if a.cigartuples[0][0] == 4:
-        start -= a.cigartuples[0][1]
-        end -= a.cigartuples[0][1]
-    return start, end
-
-
-def align_match(r, t, max_mismatches=2):  # Todo add parameter
-
-    len_r_seq = len(r.seq)
-    len_t_seq = len(t.seq)
-
-    r_start, r_end = extent(r)
-    t_start, t_end = extent(t)
-
-    r_offset = r_start - (min(r_start, t_start))
-    t_offset = t_start - (min(r_start, t_start))
-
-    size = max(len_t_seq + t_offset, len_r_seq + r_offset)
-    arr = np.chararray((2, size), itemsize=1)
-    arr[:] = ""
-
-    # Convert string to character array
-    r_s = np.array(list(r.seq))
-    t_s = np.array(list(t.seq))
-
-    arr[0, r_offset: len_r_seq + r_offset] = r_s
-    arr[1, t_offset: len_t_seq + t_offset] = t_s
-
-    istart = max(r_offset, t_offset)
-    iend = min(len_r_seq + r_offset, len_t_seq + t_offset)
-
-    mm = arr[0, istart:iend] != arr[1, istart:iend]
-    mismatches = np.sum(mm)
-    if mismatches > max_mismatches:
-        return 0., 0.
-
-    matches = len(mm) - mismatches
-    identity = float(matches) / (mismatches + matches)
-
-    p = 1.0
-    # Find probability of mismatches
-
-    if mismatches > 0:
-        mm_idxs = np.where(mm)[0]
-        r_idxs = [i - r_offset + istart for i in mm_idxs]
-        t_idxs = [i - t_offset + istart for i in mm_idxs]
-
-        rq = [r.query_qualities[i] for i in r_idxs]
-        tq = [t.query_qualities[i] for i in t_idxs]
-
-        minqual = np.min([rq, tq], axis=0).astype(float)
-
-        p = np.multiply.reduce(10 ** (-minqual / 10))
-
-    return identity, p
 
 
 def echo(*args):
@@ -608,7 +548,14 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=(), w
 
                 if ol:  # and not sup_edge:
 
-                    identity, prob_same = align_match(r, t)
+                    # identity, prob_same = align_match(r, t)
+
+                    prob_same = alignments_match(r.seq, t.seq,
+                                                 0 if r.cigartuples[0][0] != 4 else r.cigartuples[0][1],
+                                                 0 if t.cigartuples[0][0] != 4 else t.cigartuples[0][1],
+                                                 r.pos, t.pos, r.query_qualities, t.query_qualities)
+
+                    # echo(prob_same, prob_same2)
                     if prob_same > 0.01:  # Add a black edge
                         if bb <= 10:  # Stop the graph getting unnecessarily dense
                             G.add_node(n1, {"p": (r.rname, r.pos)})

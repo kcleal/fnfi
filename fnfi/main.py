@@ -54,6 +54,7 @@ align_args = {}
 
 version = pkg_resources.require("fnfi")[0].version
 
+
 def pipeline(kwargs):  # Todo add a verbosity option (keep some or all of temp files)
     t0 = time.time()
     click.echo("Running fnfi pipeline", err=True)
@@ -283,8 +284,6 @@ def fnfi_aligner(ctx, **kwargs):
               default=None, type=click.Path())
 @click.option("--buffer-size", help="Number of alignments to load into buffer", default=defaults["buffer_size"],
               type=int, show_default=True)
-@click.option("--mark-dups", help="Use samblaster to mark duplicates", default=defaults["mark_dups"],
-              type=click.Choice(["True", "False"]), show_default=True)
 @click.option("--model", help="A model trained with fnfi train", default=defaults["model"],
               type=click.Path(), show_default=True)
 @click.option('--reference', help="If provided, contigs will be mapped using bwa", default=None,
@@ -374,7 +373,7 @@ if __name__ == "__main__":
 
     #input_stream_alignments.process_reads(df)
     k = defaults
-    k["sv_aligns"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/output/DB120.hq_all.fnfi.srt.rmdup.bam"  # DB120.fnfi.srt.rmdup.bam DB120.hq_all.fnfi.srt.bam  # DB120.fnfi.srt.bam  # DB120.hq_all.fnfi.srt.rmdup.bam
+    k["sv_aligns"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/output/DB120.hq_all.fnfi.srt.bam"  # DB120.fnfi.srt.rmdup.bam DB120.hq_all.fnfi.srt.bam  # DB120.fnfi.srt.bam  # DB120.hq_all.fnfi.srt.rmdup.bam
     # k["raw_aligns"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/Event_simulator/Events/bwa.0.2.srt.bam"
     k["include"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/test/include_tels.bed"
     k["svs_out"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/DB120.test.csv"
