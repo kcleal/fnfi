@@ -154,7 +154,7 @@ def launch_external_mapper(kwargs):
 
 def sort_and_index(kwargs):
     """Convenience function to sort and index a sam file, then remove the input sam file"""
-    c = "samtools view -uh {fix}.sam | samtools fixmate | \
+    c = "samtools view -Sh {fix}.sam | \
     samblaster --ignoreUnmated | \
     samtools sort -@ {p} -o {fix}.srt.bam - ; \
     samtools index -@ {p} {fix}.srt.bam"

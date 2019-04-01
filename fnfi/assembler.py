@@ -289,7 +289,7 @@ def link_pair_of_assemblies(a, b, clip_length):
         m = check_contig_match(a["contig"], b["contig_rev"], supress_seq=False)
         if m != 0:
             a["linked"] = 1
-            h = get_microh_or_ins(m, b_rev=True)
+            h = get_microh_or_ins(m)
         else:
             a["linked"] = 0
             h = {"mark": "None", "mark_seq": "", "mark_ed": "", "templated_ins_info": "",
