@@ -8,6 +8,11 @@ import data_io
 from collections import defaultdict, deque
 import time
 
+try:
+    xrange
+except NameError:
+    xrange = range
+
 
 class Alignment(object):
     """Picklable struct to hold the contents of pysam alignment"""
@@ -506,11 +511,11 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=()):
 
                     # Only add node if it is a split read
                     if r.has_SA:
-                        G.add_node(n1, {"p": (r.rname, r.pos)})
+                        G.add_node(n1, p=(r.rname, r.pos))
 
             # Keeps all singletons that dont overlap --include, even if no 'black' or 'grey' edges.
             if not ol_include:
-                G.add_node(n1, {"p": (r.rname, r.pos)})
+                G.add_node(n1, p=(r.rname, r.pos))
 
             #targets = set([])
             gg = 0
@@ -540,9 +545,9 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=()):
 
                     if prob_same > 0.01:  # Add a black edge
                         if bb <= 10:  # Stop the graph getting unnecessarily dense
-                            G.add_node(n1, {"p": (r.rname, r.pos)})
-                            G.add_node(n2, {"p": (t.rname, t.pos)})
-                            G.add_edge(n1, n2, {"c": "b"})
+                            G.add_node(n1, p=(r.rname, r.pos))
+                            G.add_node(n2, p=(t.rname, t.pos))
+                            G.add_edge(n1, n2, c="b")
                             black_edges += 1
                             bb += 1
 
@@ -562,9 +567,9 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=()):
 
                     if add_grey:
                         if gg <= 6:
-                            G.add_node(n1, {"p": (r.rname, r.pos)})
-                            G.add_node(n2, {"p": (t.rname, t.pos)})
-                            G.add_edge(n1, n2, {"c": "g"})
+                            G.add_node(n1, p=(r.rname, r.pos))
+                            G.add_node(n2, p=(t.rname, t.pos))
+                            G.add_edge(n1, n2, c="g")
                             gg += 1
                             grey_added += 1
 
@@ -573,9 +578,9 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=()):
                 elif sup_edge:
                     # Add a yellow edge
                     if yy <= 6:
-                        G.add_node(n1, {"p": (r.rname, r.pos)})
-                        G.add_node(n2, {"p": (t.rname, t.pos)})
-                        G.add_edge(n1, n2, {"c": "y"})
+                        G.add_node(n1, p=(r.rname, r.pos))
+                        G.add_node(n2, p=(t.rname, t.pos))
+                        G.add_edge(n1, n2, c="y")
                         yy += 1
 
                     continue

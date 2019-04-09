@@ -279,5 +279,5 @@ if __name__ == "__main__":
     print(process(rt))
 
     for row in rt["data"]:
-        print list(row.astype(int))
+        print(list(row.astype(int)))
 

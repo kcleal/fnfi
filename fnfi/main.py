@@ -25,8 +25,6 @@ defaults = {
             "exclude": None,
             "include": None,
             "paired": "True",
-            # "insert_median": 210.,
-            # "insert_stdev": 175.,
             "read_length": 125.,
             "max_insertion": 150.,
             "min_aln": 17.,
@@ -46,8 +44,9 @@ defaults = {
             "buffer_size": 1000000,
             "I": "210,175",
             "mark_dups": "True",
-            "model": None
-            #"model": os.path.dirname(os.path.realpath(__file__)) + "/fnfi_model.pkl"
+            "model": None,
+            "primers": None,
+
             }
 
 align_args = {}
@@ -196,6 +195,8 @@ def cli():
               default=None, type=click.Path(exists=True))
 @click.option('--clip-length', help="Minimum soft-clip length; >= threshold are kept", default=defaults["clip_length"], type=int,
               show_default=True)
+@click.option('--primers', help="Comma separated list of primers to trim (using cutadapt)", default=defaults["primers"], type=str,
+              show_default=True)
 @click.option('--mapper', help="External mapper to use for re-alignment", default=defaults["mapper"],
               type=click.Choice(['bwamem', 'last']), show_default=True)
 @click.option('--map-script', help="""External shell script for mappping fastq files. \
@@ -207,6 +208,8 @@ $4 threads to use""", default=None, type=click.Path(exists=True))
               default=None, type=click.Path())
 @click.option('-I', help="Insert size and stdev as 'FLOAT,FLOAT'. If not provided, automatically inferred",
               default=defaults["I"], type=str)
+@click.option("--model", help="A model trained with fnfi train", default=defaults["model"],
+              type=click.Path(), show_default=True)
 @click.pass_context
 def run_command(ctx, **kwargs):
     """Run the fusion-finder pipeline."""  # Todo echo fnfi version on command line invocation of each tool
@@ -268,7 +271,6 @@ def fnfi_aligner(ctx, **kwargs):
 
 
 @cli.command("call-events")
-# @click.argument('raw-aligns', required=True, type=click.Path(exists=True))
 @click.argument('sv-aligns', required=True, type=click.Path(exists=True))
 @click.argument("svs-out", required=False, type=click.Path())
 @click.option('--clip-length', help="Minimum soft-clip length; >= threshold are kept.", default=defaults["clip_length"], type=int,
@@ -349,40 +351,16 @@ def test_run_command(ctx, **kwargs):
         call("fnfi align --paired False {sam} > {o}".format(sam=sam, o=output), shell=True)
 
 
-    quit()
-
-    # Test run command using paired-end data
-    b1 = "{}/bwa.0.5.srt.bam".format(tests_path)
-
-    click.echo(b1)
-    inc = "{}/include_tels.bed".format(tests_path)
-
-    kwargs["bam"] = b1
-    kwargs["include"] = inc
-
-    update_ctx(kwargs, ctx)
-    click.echo(ctx.obj)
-    ctx.invoke(run_command)
-
-
 if __name__ == "__main__":
 
-    # df = defaults
-    # df["sam"] = open("/Users/kezcleal/Documents/Data/fusion_finder_development/Split_read_simulator/paired_end_with_one_split/pairs.bwamem_allf.sam", "r")
-    # df["output"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/Split_read_simulator/sv_gen_mapped/test.fnfi.unsrt.sam"
-
-    #input_stream_alignments.process_reads(df)
     k = defaults
     k["sv_aligns"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/output/DB120.fnfi.srt.rmdup.bam"  #  DB133.fnfi.srt.rmdup.bam DB120.hq_all.fnfi.srt.bam  # DB120.fnfi.srt.bam  # DB120.hq_all.fnfi.srt.rmdup.bam
-    # k["raw_aligns"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/Event_simulator/Events/bwa.0.2.srt.bam"
-    k["include"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/test/include_tels.bed"
+    k["include"] = None  # "/Users/kezcleal/Documents/Data/fusion_finder_development/test/include_tels.bed"
     k["svs_out"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/DB120.test.csv"
     k["procs"] = 1
-    #k["model"] = "None"
     k["model"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/trained_fnfi2_clf2_extratrees_model.pkl"
     k["I"] = "142,187"
     k["dest"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/"
     k["reference"] = "/Users/kezcleal/Documents/Data/db/hg38/hg38.fa"
-    #name = "fufi2_id{}".format("0.2")
 
     cluster.cluster_reads(k)

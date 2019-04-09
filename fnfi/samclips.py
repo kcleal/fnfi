@@ -717,5 +717,5 @@ if __name__ == "__main__":
     sam = fixsam(template)
 
     for l in sam:
-        print l
+        print(l)
 

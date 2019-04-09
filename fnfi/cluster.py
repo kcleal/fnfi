@@ -18,10 +18,6 @@ import graph_funcs
 import coverage
 
 try:
-    from StringIO import StringIO
-except ImportError:
-    from io import StringIO
-try:
     xrange
 except NameError:
     xrange = range

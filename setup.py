@@ -47,10 +47,10 @@ setup(
         'numpy',
         'pandas',
         'pysam',
-        'networkx==1.9',
+        'networkx',
         'scikit-learn',
         'ncls',
-        'scikit-bio==0.4.2',
+        'scikit-bio',
         'sortedcontainers'
     ],
     entry_points='''

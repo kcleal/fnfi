@@ -303,6 +303,6 @@ if __name__ == "__main__":
     a = "cgcccgcccaggtctgacctcagaagaactctgctccgccttcgcaatacccccgaagtctgtgcagagaagaacgcagctccgccctggcgatgctccctAACCCTAACCCTAACCCTAACCCTAACCCTTCCTCAGCCTCTCAACCTGCTTGGGTTACAGGTATGAGCCCGGGTGCCTAGCCAAACATTCCATTTTATATGTATATGCTAGGAAT"
     b = "ctgtgcagagaagaacgcagctccgccctggcgatgctccctAACCCTAACCCTAACCCTAACCCTAACCCTTCCTCAGCCTCTCAACCTGCTTGGGTTACAGGTATGAGCCCGGGTGCCTAGCCAAACATTCCATTTTATATGTATATGCTAGGAATGAATAATCT"
     c = "attcctagcatatacatataaaatggaatgtttggctaggcacccgggctcatacctgtaacccaagcaggttgagaggctgaggaagggttagggttagggttagggttagggttaggGAGCATCGCCAGGGCGGAGCTGCGTTCTTCTCTGCACAGACTTCGGGGGTATTGCGAAGGCGGAGCAGAGTTCTTCTGAGGTCAGACCTGGGCGGGCG"
-    print check_contig_match(a, b, supress_seq=False)
-    print get_microh_or_ins(check_contig_match(a, reverse_complement(c, len(c)), diffs=8, supress_seq=False))
+    print(check_contig_match(a, b, supress_seq=False))
+    print(get_microh_or_ins(check_contig_match(a, reverse_complement(c, len(c)), diffs=8, supress_seq=False)))
     pass

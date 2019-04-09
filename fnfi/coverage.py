@@ -68,7 +68,7 @@ def scan_whole_genome(inputbam, max_cov, tree):
 
     total_dropped, reads_dropped = 0, 0
     intervals = []
-    for chrom, v in depth_d.iteritems():
+    for chrom, v in depth_d.items():
 
         for k2, v2 in v.items():
             bin_cov = (v2 * approx_read_length) / 100
