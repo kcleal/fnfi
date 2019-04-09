@@ -526,9 +526,8 @@ def get_preliminary_events(G, read_buffer, infile, args, max_dist, regions, regi
 
 def cluster_reads(args):
     t0 = time.time()
-
     try:
-        model = pickle.load(open(args["model"]))
+        model = pickle.load(open(args["model"], "rb"))
         click.echo("Model loaded from {}".format(args["model"]), err=True)
     except:
         model = None

@@ -309,7 +309,7 @@ def test_run_command(ctx, **kwargs):
 
     def update_ctx(kwargs, ctx):
         for k, v in defaults.items() + kwargs.items() + {ctx.args[i][2:]: ctx.args[i + 1] for i in
-                                                         xrange(0, len(ctx.args), 2)}.items():
+                                                         range(0, len(ctx.args), 2)}.items():
             if isinstance(v, str):
                 if v.isdigit():
                     if int(v) == float(v):
@@ -355,10 +355,10 @@ if __name__ == "__main__":
 
     k = defaults
     k["sv_aligns"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/output/DB120.fnfi.srt.rmdup.bam"  #  DB133.fnfi.srt.rmdup.bam DB120.hq_all.fnfi.srt.bam  # DB120.fnfi.srt.bam  # DB120.hq_all.fnfi.srt.rmdup.bam
-    k["include"] = None  # "/Users/kezcleal/Documents/Data/fusion_finder_development/test/include_tels.bed"
+    k["include"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/test/include_tels.bed"
     k["svs_out"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/DB120.test.csv"
     k["procs"] = 1
-    k["model"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/trained_fnfi2_clf2_extratrees_model.pkl"
+    k["model"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/trained_fnfi2_clf2_extratrees2_model.pkl"
     k["I"] = "142,187"
     k["dest"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/"
     k["reference"] = "/Users/kezcleal/Documents/Data/db/hg38/hg38.fa"

@@ -155,7 +155,7 @@ def separate_mixed(break_points_dict, thresh=500):
 
                 # Get only reads that are split i.e. primary + supplementary pairs
                 break_points_dict = {k: v for k, v in break_points_dict.items() if (k[0], bool(k[1] & 64)) in supps}
-                break_points = break_points_dict.items()
+                break_points = list(break_points_dict.items())
 
                 if len(break_points) == 1:
                     c1 = break_points_dict
@@ -556,7 +556,7 @@ def calculate_coverage(chrom, start, end, region_depths):
     if start < 0:
         start = 0
     end = ((int(end) / 100) * 100) + 100
-    return [region_depths[(chrom, i)] if (chrom, i) in region_depths else 0 for i in range(start, end, 100) ]
+    return [region_depths[(chrom, i)] if (chrom, i) in region_depths else 0 for i in range(int(start), int(end), 100)]
 
 
 def get_raw_coverage_information(r, regions, regions_depth):
@@ -620,7 +620,7 @@ def get_raw_coverage_information(r, regions, regions_depth):
 
     reads_10kb = 0
     if kind == "hemi-regional":
-        reads_10kb = sum(calculate_coverage(r["chrA"], r["posA"] - 10000, r["posA"] + 10000, regions_depth))
+        reads_10kb = sum(calculate_coverage(r["chrA"], int(r["posA"] - 10000), int(r["posA"] + 10000), regions_depth))
 
     r["kind"] = kind
     r["raw_reads_10kb"] = reads_10kb
