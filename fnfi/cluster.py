@@ -542,7 +542,6 @@ def cluster_reads(args):
 
     click.echo("Input file is {}, (.{} format). Processes={}".format(args["sv_aligns"], kind, args["procs"]), err=True)
     infile = pysam.AlignmentFile(args["sv_aligns"], opts[kind])
-
     sample_name = os.path.splitext(os.path.basename(args["sv_aligns"]))[0]
 
     if "insert_median" not in args and "I" in args:
