@@ -299,13 +299,7 @@ def score_reads(read_names, all_reads):
 
     data = {k: [] for k in ('DP', 'DApri', 'DN', 'NMpri', 'NP', 'DAsupp', 'NMsupp', 'maxASsupp', 'MAPQpri', 'MAPQsupp')}
 
-    # p = False
     for name, flag, pos in read_names:
-
-        # if name == roi:
-        #     p = True
-        #     echo(str(all_reads[name].keys()))
-        #     echo(str(all_reads[name][(flag, pos)]))
 
         if name not in all_reads:
             continue
@@ -329,8 +323,7 @@ def score_reads(read_names, all_reads):
             key = gk + idf
             if read.has_tag(gk):
                 data[key].append(float(read.get_tag(gk)))
-    # if p:
-    #     echo("data collected", data)
+
     averaged = {}
     for k, v in data.items():
         if k == "NP":
@@ -344,8 +337,6 @@ def score_reads(read_names, all_reads):
             averaged[k] = sum(v) / float(len(v))
         else:
             averaged[k] = 0
-    # averaged["max_k_coverage"] = max_kmer(collected)
-    # averaged["soft_clip_stacks"] = count_soft_clip_stacks(collected)
 
     return averaged
 
@@ -429,7 +420,7 @@ def single(parent_graph, bm, reads, bam, insert_size, insert_stdev, clip_length,
 
     if roi in reads:
         echo("info", info)
-    # echo(info)
+
     return info
 
 
@@ -504,7 +495,7 @@ def one_edge(parent_graph, bm, reads, bam, clip_length, from_func=None, roi=None
         echo("as1", as1)
         echo("as2", as2)
         echo("info", info)
-    # echo(info)
+
     return info
 
 
@@ -537,7 +528,7 @@ def reads_from_bm_nodeset(bm_nodeset, reads):
 
 
 def call_from_block_model(bm_graph, parent_graph, reads, bam, clip_length, insert_size, insert_stdev, _debug_k=False):
-    roi = "HISEQ2500-10:539:CAV68ANXX:7:2115:19198:88808"
+    roi = None  # "HISEQ2500-10:539:CAV68ANXX:7:2115:19198:88808"
     # Block model is not guaranteed to be connected
     for bm in nx.connected_component_subgraphs(bm_graph):
 
@@ -565,17 +556,17 @@ def calculate_coverage(chrom, start, end, region_depths):
     if start < 0:
         start = 0
     end = ((int(end) / 100) * 100) + 100
-    return [region_depths[(chrom, i)] for i in range(start, end, 100) if (chrom, i) in region_depths]
+    return [region_depths[(chrom, i)] if (chrom, i) in region_depths else 0 for i in range(start, end, 100) ]
 
 
-def get_raw_cov_information(r, regions, window_info, regions_depth, model):
+def get_raw_coverage_information(r, regions, regions_depth):
 
     # Check if side A in regions
     ar = False
     if data_io.intersecter(regions, r["chrA"], r["posA"], r["posA"] + 1):
         ar = True
 
-    if "chrB" not in r:  # todo fix this
+    if "chrB" not in r:  # Todo Does this happen? if so fix this
         return None
 
     br = False
@@ -588,8 +579,8 @@ def get_raw_cov_information(r, regions, window_info, regions_depth, model):
     if not ar and not br:
         kind = "extra-regional"
         # Skip if regions have been provided; almost always false positives
-        if regions is not None:  # Todo this throws away all genomic stuff! Too harsh
-            return None
+        # if regions is not None:  # Todo this throws away all genomic stuff! Too harsh
+        #     return None
 
     switch = False
     if (br and not ar) or (not br and ar):
@@ -633,7 +624,7 @@ def get_raw_cov_information(r, regions, window_info, regions_depth, model):
 
     r["kind"] = kind
     r["raw_reads_10kb"] = reads_10kb
-    r["connectivity"] = window_info["connectivity"]
+    r["connectivity"] = "Test"
 
     return r
 

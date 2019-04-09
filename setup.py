@@ -37,7 +37,7 @@ extensions = [
 print("Found packages", find_packages(where="."))
 setup(
     name="fnfi",
-    version='0.9.5',
+    version='0.9.6',
     packages=find_packages(where="."),
     ext_modules=cythonize(extensions),
     include_dirs=[numpy.get_include()],
@@ -50,7 +50,8 @@ setup(
         'networkx==1.9',
         'scikit-learn',
         'ncls',
-        'scikit-bio==0.4.2'
+        'scikit-bio==0.4.2',
+        'sortedcontainers'
     ],
     entry_points='''
         [console_scripts]

@@ -226,7 +226,11 @@ def get_mark_result(res, insertion, a, b, sa, sb, a_start, a_end, b_start, b_end
             aln = b_alignment
 
         aqs = aln.aligned_query_sequence
-        tqs = aln.aligned_target_sequence
+        try:
+            tqs = aln.aligned_target_sequence
+        except IndexError:
+            tqs = None  # No alignment
+
         if tqs:
             edit_dis = len([1 for i, j in zip(aqs, tqs) if i.upper() != j])
             if b_rev and cont == "B":

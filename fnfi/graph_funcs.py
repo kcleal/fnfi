@@ -1,6 +1,161 @@
 # Networkx functions, from v1/2. Saved here for compatability
 
 import networkx as nx
+import click
+from c_cluster_funcs import alignments_match
+import itertools
+import data_io
+from collections import defaultdict, deque
+import time
+
+
+class Alignment(object):
+    """Picklable struct to hold the contents of pysam alignment"""
+    __slots__ = ["reference_end", "cigar", "pos", "flag", "rname", "qname", "rnext", "pnext", "seq", "cigartuples",
+                 "query_qualities", "has_SA"]
+
+    def __init__(self, a):
+        self.reference_end = a.reference_end
+        self.cigar = a.cigar
+        self.pos = a.pos
+        self.flag = a.flag
+        self.rname = a.rname
+        self.qname = a.qname
+        self.rnext = a.rnext
+        self.pnext = a.pnext
+        self.seq = a.seq
+        self.cigartuples = self.cigar
+        self.query_qualities = a.query_qualities
+        self.has_SA = a.has_tag("SA")
+
+
+class Scoper(object):
+    """Keeps track of which reads are in scope. Maximum distance depends on the template insert_median"""
+    def __init__(self, max_dist, clip_length=20, max_depth=60):  # Todo add parameter for this
+        self.max_dist = max_dist
+        self.max_depth = max_depth
+        self.scope = deque([])
+        self.clip_length = clip_length
+
+    def update(self, input_read):
+
+        current_read = Alignment(input_read)  # Convert to friendly format
+        if len(self.scope) == 0:
+            self.scope.append(current_read)
+            return current_read
+
+        elif len(self.scope) > 0 and current_read.rname != self.scope[-1].rname:
+            self.scope = deque([current_read])  # Empty scope on new chromosome
+            return current_read
+
+        current_pos = current_read.pos
+
+        while True:
+            if len(self.scope) == 0:
+                break
+            if len(self.scope) > self.max_depth:
+                self.scope.popleft()
+            else:
+                break
+
+        while True:
+            if len(self.scope) == 0:
+                break
+            if abs(self.scope[0].pos - current_pos) > self.max_dist:
+                self.scope.popleft()
+            else:
+                break
+
+        self.scope.append(current_read)
+        return current_read
+
+    @staticmethod
+    def overlap(start1, end1, start2, end2):
+        return max(0, min(end1, end2) - max(start1, start2))
+
+    def iterate(self):
+        if len(self.scope) > 1:
+
+            for i in xrange(len(self.scope)):
+                if i == len(self.scope) - 1:
+                    break  # Don't pair with self
+                t = self.scope[i]
+                if t.qname == self.scope[-1].qname:
+                    continue  # Don't pair with same template
+                current = self.scope[-1]
+
+                # If current is a supplementary, it MAY be hard-clipped so only look for alignment-overlaps
+                if current.flag & 2048 and (current.cigar[0][0] == 5 or current.cigar[-1][0] == 5):
+
+                    # Make sure hard-clip can be overlapped with soft-clip on t
+                    if current.cigar[0][0] == 5 and current.cigar[0][1] >= self.clip_length:  # Left HARD-clip current
+                        if t.cigar[0][0] == 4 and t.cigar[0][1] >= self.clip_length:  # Left soft-clip on t
+                            # Extent of hard and soft-clip overlap
+                            c_sc_start = current.pos - current.cigar[0][1]
+                            t_sc_start = t.pos - t.cigar[0][1]
+                            if self.overlap(t_sc_start, t.pos, c_sc_start, current.pos) >= self.clip_length:
+                                # Read, soft-clip overlap primary edge, hard-clip overlap supplementary edge
+                                yield t, False, True
+
+                    elif current.cigar[-1][0] == 5 and current.cigar[-1][1] > self.clip_length:  # Right HARD-clip
+                        if t.cigar[-1][0] == 4 and t.cigar[-1][1] > self.clip_length:  # Right soft-clip
+                            c_sc_end = current.reference_end + current.cigar[-1][1]
+                            t_sc_end = t.reference_end + t.cigar[-1][1]
+                            if self.overlap(t.reference_end, t_sc_end, current.reference_end,
+                                            c_sc_end) >= self.clip_length:
+                                yield t, False, True
+
+                #
+                if current.cigar[0][0] == 4 and current.cigar[0][1] >= self.clip_length:  # Left soft-clip on current
+                    if t.cigar[0][0] == 4:  # and t.cigar[0][1] >= self.clip_length:  # Left soft-clip on t
+                        # Extent of sof-clip, make sure-soft-clip portion overlaps not the alignment part
+                        c_sc_start = current.pos - current.cigar[0][1]
+                        t_sc_start = t.pos - t.cigar[0][1]
+                        if self.overlap(t_sc_start, t.pos, c_sc_start, current.pos) >= self.clip_length:
+                            yield t, True, False
+
+                    elif t.cigar[0][0] == 5 and t.flag & 2048 and t.cigar[0][1] >= self.clip_length:  # Hard clip on t
+                        c_sc_start = current.pos - current.cigar[0][1]
+                        t_sc_start = t.pos - t.cigar[0][1]
+                        if self.overlap(t_sc_start, t.pos, c_sc_start, current.pos) >= self.clip_length:
+                            yield t, False, True
+
+                elif current.cigar[0][0] == 4:
+                    if t.cigar[0][0] == 4 and t.cigar[0][1] >= self.clip_length:  # Left soft-clip on t
+                        # Extent of sof-clip, make sure-soft-clip portion overlaps not the alignment part
+                        c_sc_start = current.pos - current.cigar[0][1]
+                        t_sc_start = t.pos - t.cigar[0][1]
+                        if self.overlap(t_sc_start, t.pos, c_sc_start, current.pos) >= self.clip_length:
+                            yield t, True, False
+
+                elif current.cigar[-1][0] == 4 and current.cigar[-1][1] > self.clip_length:  # Right soft-clip
+                    if t.cigar[-1][0] == 4:  # and t.cigar[-1][1] > self.clip_length:
+                        c_sc_end = current.reference_end + current.cigar[-1][1]
+                        t_sc_end = t.reference_end + t.cigar[-1][1]
+                        if self.overlap(t.reference_end, t_sc_end, current.reference_end, c_sc_end) >= self.clip_length:
+                            yield t, True, False
+
+                    elif t.cigar[-1][0] == 5 and t.flag & 2048 and t.cigar[-1][1] >= self.clip_length:
+                        c_sc_end = current.reference_end + current.cigar[-1][1]
+                        t_sc_end = t.reference_end + t.cigar[-1][1]
+                        if self.overlap(t.reference_end, t_sc_end, current.reference_end, c_sc_end) >= self.clip_length:
+                            yield t, False, True
+
+                elif current.cigar[-1][0] == 4:
+                    if t.cigar[-1][0] == 4 and t.cigar[-1][1] > self.clip_length:
+                        c_sc_end = current.reference_end + current.cigar[-1][1]
+                        t_sc_end = t.reference_end + t.cigar[-1][1]
+                        if self.overlap(t.reference_end, t_sc_end, current.reference_end, c_sc_end) >= self.clip_length:
+                            yield t, True, False
+
+                # else:
+                yield t, False, False
+
+        yield None, None, None  # When not enough reads are in scope
+
+
+def echo(*args):
+    click.echo(args, err=True)
 
 
 def blockmodel(G, partitions):
@@ -296,3 +451,193 @@ def dag_longest_path(G, weight='weight', default_weight=1):
         v = dist[v][1]
     path.reverse()
     return path
+
+
+def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=()):
+    t0 = time.time()
+    click.echo("Building graph from {} regions".format(len(input_windows)), err=True)
+    all_flags = defaultdict(set)  # Linking clusters together rname: set([(flag, pos)..])
+
+    # Make a buffer of reads to help prevent file lookups later
+    read_buffer = dict()  # keys are (rname, flag, pos)
+    read_index_buffer = dict()  # keys are int, values are (rname, flag, pos)
+
+    scope = Scoper(max_dist=max_dist)
+    # pileup = PileupSequences(distance=250)
+
+    count = 0
+    buf_del_index = 0
+
+    grey_added = 0
+    black_edges = 0
+
+    G = nx.Graph()
+    for widx, window in enumerate(input_windows):
+
+        for r in infile.fetch(*window):
+
+            if len(r.cigar) == 0 or r.flag & 1028:  # Unmapped or duplicate
+                continue
+
+            n1 = (r.qname, r.flag, r.pos)
+
+            # Add read to buffer
+            read_buffer[n1] = r
+            read_index_buffer[count] = n1
+            count += 1
+
+            # Reduce reads in buffer if too many
+            if len(read_buffer) > buf_size:
+                if buf_del_index in read_index_buffer:
+                    if read_index_buffer[buf_del_index] in read_buffer:
+                        del read_buffer[read_index_buffer[buf_del_index]]
+                    del read_index_buffer[buf_del_index]
+                buf_del_index += 1
+
+            all_flags[r.qname].add((r.flag, r.pos))
+
+            r = scope.update(r)  # Add alignment to scope, convert to a pickle-able object
+
+            ol_include = False
+            if tree:
+                if data_io.intersecter(tree, infile.get_reference_name(r.rname), r.pos - 150, r.pos + 150) and \
+                   data_io.intersecter(tree, infile.get_reference_name(r.rnext), r.pnext - 150, r.pnext + 150):
+                    ol_include = True
+
+                    # Only add node if it is a split read
+                    if r.has_SA:
+                        G.add_node(n1, {"p": (r.rname, r.pos)})
+
+            # Keeps all singletons that dont overlap --include, even if no 'black' or 'grey' edges.
+            if not ol_include:
+                G.add_node(n1, {"p": (r.rname, r.pos)})
+
+            #targets = set([])
+            gg = 0
+            bb = 0
+            yy = 0
+
+            for t, ol, sup_edge in scope.iterate():  # Other read, overlap current read, supplementary edge
+                if not t:
+                    break
+
+                n2 = (t.qname, t.flag, t.pos)
+                all_flags[t.qname].add((t.flag, t.pos))
+
+                # Four types of edges; black means definite match with overlapping soft-clips. Grey means similar
+                # rearrangement with start and end coords on reference genome.
+                # Yellow means supplementary (with no good soft-clip) matches a primary
+                # Finally white edge means a read1 to read2 edge
+                # if n1 in targets:
+                #     echo(n1, n2, ol, sup_edge)
+
+                if ol:  # and not sup_edge:
+
+                    prob_same = alignments_match(r.seq, t.seq,
+                                                 0 if r.cigartuples[0][0] != 4 else r.cigartuples[0][1],
+                                                 0 if t.cigartuples[0][0] != 4 else t.cigartuples[0][1],
+                                                 r.pos, t.pos, r.query_qualities, t.query_qualities)
+
+                    if prob_same > 0.01:  # Add a black edge
+                        if bb <= 10:  # Stop the graph getting unnecessarily dense
+                            G.add_node(n1, {"p": (r.rname, r.pos)})
+                            G.add_node(n2, {"p": (t.rname, t.pos)})
+                            G.add_edge(n1, n2, {"c": "b"})
+                            black_edges += 1
+                            bb += 1
+
+                    continue
+
+                # Make sure both are discordant, mapped to same chromosome
+                if (r.flag & 2) or (t.flag & 2) or r.rnext == -1 or r.rnext != t.rnext:
+                    continue
+
+                if abs(r.pnext - t.pnext) < max_dist:  # Other ends are within clustering distance
+
+                    add_grey = False
+                    if not ol_include:
+                        # Add a grey edge if they are both discordant reads
+                        if not n1[1] & 2 and not n2[1] & 2:
+                            add_grey = True
+
+                    if add_grey:
+                        if gg <= 6:
+                            G.add_node(n1, {"p": (r.rname, r.pos)})
+                            G.add_node(n2, {"p": (t.rname, t.pos)})
+                            G.add_edge(n1, n2, {"c": "g"})
+                            gg += 1
+                            grey_added += 1
+
+                        continue
+
+                elif sup_edge:
+                    # Add a yellow edge
+                    if yy <= 6:
+                        G.add_node(n1, {"p": (r.rname, r.pos)})
+                        G.add_node(n2, {"p": (t.rname, t.pos)})
+                        G.add_edge(n1, n2, {"c": "y"})
+                        yy += 1
+
+                    continue
+
+    # Add read-pair information to the graph, link regions together
+    new_edges = []
+    for g in nx.connected_component_subgraphs(G, copy=False):
+        # Add white edges between read-pairs which are NOT joined by edges in the subgraph
+        # all_flags: rname: (flag, pos)
+        nodes_to_check = [(n, all_flags[n]) for n, f, p in g.nodes()]
+        for n, flags in nodes_to_check:  # 2 reads, or 3 if supplementary read
+
+            for f1, f2 in itertools.combinations_with_replacement(flags, 2):  # Check all edges within template
+                u, v = (n, f1[0], f1[1]), (n, f2[0], f2[1])
+                has_v, has_u = g.has_node(v), g.has_node(u)
+
+                # Only add an edge if either u or v is missing, not if both (or neither) missing
+                if has_u != has_v:  # XOR
+
+                    new_edges.append((u, v, {"c": "w"}))
+
+    G.add_edges_from(new_edges)
+    t1 = time.time() - t0
+    click.echo("Built cluster graph {}s".format(round(t1, 1)), err=True)
+    return G, read_buffer
+
+
+def block_model_evidence(bm, parent_graph):
+    """
+    Quantify the level of support over each edge in the block model
+    :param bm: input block model
+    :param parent_graph: the big component
+    :return: annotated block model, edge attributes give evidence support
+    """
+    # Go through block model nodes and annotate edges
+    seen = set([])
+
+    for node_set in bm.nodes():
+        if node_set in seen:
+
+            continue
+        seen.add(node_set)
+        read_names_a = set([i[0] for i in node_set])
+
+        for neighbor_set in bm[node_set]:
+            read_names_b = set([i[0] for i in neighbor_set])
+
+            pe_support = len(read_names_a.intersection(read_names_b))
+
+            # Reads connected with black edges give soft-clip support at each side
+            sub = parent_graph.subgraph(node_set.union(neighbor_set))
+
+            black_connected = [(j[0], j[1]) for j in [i for i in sub.edges(data=True) if i[2]['c'] == 'b']]
+            black_nodes = len(set(item for sublist in black_connected for item in sublist))
+
+            supplementary = len(set([i[0] for i in sub.nodes() if i[1] & 2048]))
+
+            res = {"pe": pe_support,
+                   "sc": black_nodes,  # Todo this is overlapping soft-clips not number of soft-clips
+                   "supp": supplementary}
+
+            bm[node_set][neighbor_set]["result"] = res
+            seen.add(neighbor_set)
+
+    return bm
