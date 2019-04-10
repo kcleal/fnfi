@@ -1,7 +1,7 @@
-
+from __future__ import absolute_import
 from collections import OrderedDict
 import click
-import data_io
+from . import data_io
 from sortedcontainers import SortedDict
 
 

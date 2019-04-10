@@ -1,13 +1,12 @@
+from __future__ import absolute_import
 import multiprocessing
 import sys
 import pkg_resources
 from threading import Thread
 import click
-import data_io
-import pairing
+from . import data_io, pairing, c_io_funcs
 import time
 import datetime
-import c_io_funcs
 
 # Todo Find out if reads are being dropped
 

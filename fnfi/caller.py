@@ -1,9 +1,9 @@
+from __future__ import absolute_import
 from collections import Counter, defaultdict
 import click
 import networkx as nx
 import numpy as np
-import assembler
-import data_io
+from . import assembler, data_io
 import pandas as pd
 from subprocess import call
 import os

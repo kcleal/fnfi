@@ -2,12 +2,12 @@
 Find the best path through a collection of alignments
 Works with paried-end reads rather or single contigs. Borrows the pairing heuristic from bwa.
 """
-
+from __future__ import absolute_import
 import sys
 import numpy as np
 import os
 import click
-import align_path_c
+from . import align_path_c
 
 
 def read_orientations(t, r1_len, r2_len):

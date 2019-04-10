@@ -1,17 +1,12 @@
 # Networkx functions, from v1/2. Saved here for compatability
-
+from __future__ import absolute_import
 import networkx as nx
 import click
-from c_cluster_funcs import alignments_match
+from . import c_cluster_funcs
 import itertools
-import data_io
+from . import data_io
 from collections import defaultdict, deque
 import time
-
-try:
-    xrange
-except NameError:
-    xrange = range
 
 
 class Alignment(object):
@@ -81,7 +76,7 @@ class Scoper(object):
     def iterate(self):
         if len(self.scope) > 1:
 
-            for i in xrange(len(self.scope)):
+            for i in range(len(self.scope)):
                 if i == len(self.scope) - 1:
                     break  # Don't pair with self
                 t = self.scope[i]
@@ -538,10 +533,10 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=()):
 
                 if ol:  # and not sup_edge:
 
-                    prob_same = alignments_match(r.seq, t.seq,
-                                                 0 if r.cigartuples[0][0] != 4 else r.cigartuples[0][1],
-                                                 0 if t.cigartuples[0][0] != 4 else t.cigartuples[0][1],
-                                                 r.pos, t.pos, r.query_qualities, t.query_qualities)
+                    prob_same = c_cluster_funcs.alignments_match(r.seq, t.seq,
+                                0 if r.cigartuples[0][0] != 4 else r.cigartuples[0][1],
+                                0 if t.cigartuples[0][0] != 4 else t.cigartuples[0][1],
+                                r.pos, t.pos, r.query_qualities, t.query_qualities)
 
                     if prob_same > 0.01:  # Add a black edge
                         if bb <= 10:  # Stop the graph getting unnecessarily dense

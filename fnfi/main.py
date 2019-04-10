@@ -1,13 +1,11 @@
+from __future__ import absolute_import
 import click
 import datetime
 import os
 import time
 from multiprocessing import cpu_count
 from subprocess import Popen, PIPE, check_call, call
-import find_pairs
-import cluster
-import input_stream_alignments
-import data_io
+from . import find_pairs, cluster, input_stream_alignments, data_io
 import pkg_resources
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -45,8 +43,6 @@ defaults = {
             "I": "210,175",
             "mark_dups": "True",
             "model": None,
-            "primers": None,
-
             }
 
 align_args = {}
@@ -54,7 +50,7 @@ align_args = {}
 version = pkg_resources.require("fnfi")[0].version
 
 
-def pipeline(kwargs):  # Todo add a verbosity option (keep some or all of temp files)
+def pipeline(kwargs):
     t0 = time.time()
     click.echo("Running fnfi pipeline", err=True)
     if kwargs["bam"] is None:
@@ -80,7 +76,6 @@ def pipeline(kwargs):  # Todo add a verbosity option (keep some or all of temp f
         kwargs["fq1"] = kwargs["out_pfix"] + "1.fq"
         kwargs["fq2"] = kwargs["out_pfix"] + "2.fq"
 
-    # os.fdopen(process.stdout.fileno(), "r", 1)  # Alyways get this error close failed in file object destructor
     kwargs["sam"] = iter(process.stdout.readline, "")
     kwargs["output"] = kwargs["out_pfix"] + ".sam"
 
@@ -105,7 +100,6 @@ def pipeline(kwargs):  # Todo add a verbosity option (keep some or all of temp f
     kwargs["raw_aligns"] = kwargs["bam"]
 
     cluster.cluster_reads(kwargs)
-    # Todo cleanup of other temp files
     click.echo("fnfi run {} completed in {} h:m:s\n".format(kwargs["bam"],
                                                             str(datetime.timedelta(seconds=int(time.time() - t0)))),
                err=True)
@@ -127,17 +121,17 @@ def launch_external_mapper(kwargs):
     p = int(kwargs["procs"])
     if not kwargs["map_script"] and kwargs["mapper"] == "bwamem":
         command = "bwa mem -Y -t {procs} -a {ref} {s}1.fq {s}2.fq".format(procs=p - 1 if p > 1 else 1,
-                                                                             ref=kwargs["reference"],
-                                                                             s=kwargs["fastq"])
+                                                                          ref=kwargs["reference"],
+                                                                          s=kwargs["fastq"])
 
     elif not kwargs["map_script"] and kwargs["mapper"] == "last":
         # Todo need to exract the sam header from input file, and use this as the dict argument in maf-convert
         command = "fastq-interleave {s}1.fq {s}2.fq \
         | lastal -k2 -l11 -Q1 -D10000 -K8 -C8 -i10M -r1 -q4 -a6 -b1 -P{procs} {ref} \
         | last-map-probs -m 1 -s 1 | maf-convert -f {d}.dict sam".format(procs=p,
-                                              ref=kwargs["reference"],
-                                              d=kwargs["out_pfix"],
-                                              s=kwargs["fastq"])
+                                                                         ref=kwargs["reference"],
+                                                                         d=kwargs["out_pfix"],
+                                                                         s=kwargs["fastq"])
 
     else:
         command = "bash {script} {ref} {s}1.fq {s}2.fq {procs}".format(script=kwargs["map_script"],
@@ -162,9 +156,9 @@ def sort_and_index(kwargs):
     click.echo(c, err=True)
     check_call(c, shell=True)
     os.remove(kwargs["output"])
-    # quit()
 
-# Interface:
+
+# User Interface:
 # ----------------------------------------------------------------------------------------------------------------------
 def apply_ctx(ctx, kwargs):
     ctx.ensure_object(dict)
@@ -193,10 +187,8 @@ def cli():
 @click.option('--search', help=".bed file, limit search to regions", default=None, type=click.Path(exists=True))
 @click.option('--exclude', help=".bed file, do not search/call SVs within regions. Overrides include/search",
               default=None, type=click.Path(exists=True))
-@click.option('--clip-length', help="Minimum soft-clip length; >= threshold are kept", default=defaults["clip_length"], type=int,
-              show_default=True)
-@click.option('--primers', help="Comma separated list of primers to trim (using cutadapt)", default=defaults["primers"], type=str,
-              show_default=True)
+@click.option('--clip-length', help="Minimum soft-clip length; >= threshold are kept", default=defaults["clip_length"],
+              type=int, show_default=True)
 @click.option('--mapper', help="External mapper to use for re-alignment", default=defaults["mapper"],
               type=click.Choice(['bwamem', 'last']), show_default=True)
 @click.option('--map-script', help="""External shell script for mappping fastq files. \
@@ -220,8 +212,8 @@ def run_command(ctx, **kwargs):
 @cli.command("find-reads")
 @click.argument('bam', required=True, type=click.Path(exists=True))
 @click.option('--post-fix', help="Post fix to tag temp files with. Default is to use 'fnfi'", default='fnfi', type=str)
-@click.option('--clip-length', help="Minimum soft-clip length; >= threshold are kept", default=defaults["clip_length"], type=int,
-              show_default=True)
+@click.option('--clip-length', help="Minimum soft-clip length; >= threshold are kept", default=defaults["clip_length"],
+              type=int, show_default=True)
 @click.option("-p", "--procs", help="Processors to use", type=cpu_range, default=defaults["procs"], show_default=True)
 @click.option('--search', help=".bed file, limit search to regions", default=None, type=click.Path(exists=True))
 @click.option('--exclude', help=".bed file, do not search/call SVs within regions. Overrides include/search",
@@ -243,19 +235,24 @@ def find_reads(ctx, **kwargs):
               type=click.Choice(["True", "False"]), show_default=True)
 @click.option('-I', help="Insert size and stdev as 'FLOAT,FLOAT'",
               default=defaults["I"], type=str, show_default=True)
-@click.option("--replace-hardclips",  help="Replace hard-clips with soft-clips when possible", default=defaults["replace_hardclips"], type=click.Choice(["True", "False"]), show_default=True)
+@click.option("--replace-hardclips",  help="Replace hard-clips with soft-clips when possible",
+              default=defaults["replace_hardclips"], type=click.Choice(["True", "False"]), show_default=True)
 @click.option("--fq1",  help="Fastq reads 1, used to add soft-clips to all hard-clipped read 1 alignments",
               default=defaults["fq1"], type=click.Path(), show_default=True)
 @click.option("--fq2",  help="Fastq reads 2, used to add soft-clips to all hard-clipped read 2 alignments",
               default=defaults["fq2"], type=click.Path(), show_default=True)
-@click.option("--max-insertion", help="Maximum insertion within read", default=defaults["max_insertion"], type=float, show_default=True)
+@click.option("--max-insertion", help="Maximum insertion within read", default=defaults["max_insertion"], type=float,
+              show_default=True)
 @click.option("--min-aln", help="Minimum alignment length", default=defaults["min_aln"], type=float, show_default=True)
-@click.option("--max-overlap", help="Maximum overlap between successive alignments", default=defaults["max_overlap"], type=float, show_default=True)
+@click.option("--max-overlap", help="Maximum overlap between successive alignments", default=defaults["max_overlap"],
+              type=float, show_default=True)
 @click.option("--ins-cost", help="Insertion cost", default=defaults["ins_cost"], type=float, show_default=True)
 @click.option("--ol-cost", help="Overlapping alignment cost", default=defaults["ol_cost"], type=float)
-@click.option("--inter-cost", help="Cost of inter-chromosomal jump", default=defaults["inter_cost"], type=float, show_default=True)
+@click.option("--inter-cost", help="Cost of inter-chromosomal jump", default=defaults["inter_cost"], type=float,
+              show_default=True)
 @click.option("--u", help="Pairing heuristic cost", default=defaults["u"], type=float, show_default=True)
-@click.option("--match-score", help="Matched base score used for input sam reads", default=defaults["match_score"], type=float, show_default=True)
+@click.option("--match-score", help="Matched base score used for input sam reads", default=defaults["match_score"],
+              type=float, show_default=True)
 @click.option("-p", "--procs", help="Processors to use", type=cpu_range, default=1, show_default=True)
 @click.option('--include', help=".bed file, elevate alignment scores in these regions. Determined by '--bias'",
               default=None, type=click.Path(exists=True))
@@ -273,13 +270,15 @@ def fnfi_aligner(ctx, **kwargs):
 @cli.command("call-events")
 @click.argument('sv-aligns', required=True, type=click.Path(exists=True))
 @click.argument("svs-out", required=False, type=click.Path())
-@click.option('--clip-length', help="Minimum soft-clip length; >= threshold are kept.", default=defaults["clip_length"], type=int,
-              show_default=True)
-@click.option('--max-cov', help="Regions with > max-cov that do no overlap 'include' are discarded.", default=defaults["max_cov"], type=float,
-              show_default=True)
+@click.option('--clip-length', help="Minimum soft-clip length; >= threshold are kept.", default=defaults["clip_length"],
+              type=int, show_default=True)
+@click.option('--max-cov', help="Regions with > max-cov that do no overlap 'include' are discarded.",
+              default=defaults["max_cov"], type=float, show_default=True)
 @click.option('-I', help="Insert size and stdev as 'FLOAT,FLOAT'",
               default=defaults["I"], type=str, show_default=True)
-@click.option('--verbose', type=click.Choice(["True", "False"]), default="True", help="If set to 'True' output is directed to a folder with the same name as the input file. Otherwise a .vcf file is generated")
+@click.option('--verbose', type=click.Choice(["True", "False"]), default="True",
+              help="If set to 'True' output is directed to a folder with the same name as the input file. \
+              Otherwise a .vcf file is generated")
 @click.option("-p", "--procs", help="Processors to use", type=cpu_range, default=defaults["procs"], show_default=True)
 @click.option('--include', help=".bed file, limit calls to regions", default=None, type=click.Path(exists=True))
 @click.option('--dest', help="Folder to use/create for saving results. Defaults to current directory",

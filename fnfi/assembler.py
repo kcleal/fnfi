@@ -1,6 +1,6 @@
 """
 A basic assembler. Takes an overlap graph and merges reads in-place in a pileup style. Different soft-clipped regions
-are then overlapped of 'linked'.
+are then overlapped and 'linked'.
 """
 
 import networkx as nx
@@ -8,8 +8,7 @@ import numpy as np
 from collections import defaultdict
 import click
 from skbio.alignment import StripedSmithWaterman
-from c_io_funcs import reverse_complement
-from graph_funcs import find_cycle, dag_longest_path
+from . import c_io_funcs, graph_funcs
 
 def echo(*args):
     click.echo(args, err=True)
@@ -116,9 +115,9 @@ def base_assemble(g, reads, bam, iid=0):
 
     path = None
     try:
-        path = dag_longest_path(G, weight="weight")
+        path = graph_funcs.dag_longest_path(G, weight="weight")
     except:
-        cy = find_cycle(G, orientation="original")
+        cy = graph_funcs.find_cycle(G, orientation="original")
         echo("Cycle in graph", cy)
         for r in rd:
             echo(bam.get_reference_name(r.rname))
@@ -153,7 +152,7 @@ def base_assemble(g, reads, bam, iid=0):
            "ref_end": matches[-1],
            "read_names": set(read_names),
            "contig": bases,
-           "contig_rev": reverse_complement(bases, len(bases)),  # .upper()
+           "contig_rev": c_io_funcs.reverse_complement(bases, len(bases)),  # .upper()
            "id": iid}
 
     return res
@@ -304,5 +303,4 @@ if __name__ == "__main__":
     b = "ctgtgcagagaagaacgcagctccgccctggcgatgctccctAACCCTAACCCTAACCCTAACCCTAACCCTTCCTCAGCCTCTCAACCTGCTTGGGTTACAGGTATGAGCCCGGGTGCCTAGCCAAACATTCCATTTTATATGTATATGCTAGGAATGAATAATCT"
     c = "attcctagcatatacatataaaatggaatgtttggctaggcacccgggctcatacctgtaacccaagcaggttgagaggctgaggaagggttagggttagggttagggttagggttaggGAGCATCGCCAGGGCGGAGCTGCGTTCTTCTCTGCACAGACTTCGGGGGTATTGCGAAGGCGGAGCAGAGTTCTTCTGAGGTCAGACCTGGGCGGGCG"
     print(check_contig_match(a, b, supress_seq=False))
-    print(get_microh_or_ins(check_contig_match(a, reverse_complement(c, len(c)), diffs=8, supress_seq=False)))
-    pass
+    print(get_microh_or_ins(check_contig_match(a, c_io_funcs.reverse_complement(c, len(c)), diffs=8, supress_seq=False)))

@@ -4,6 +4,7 @@ Outputs paired reads in .fastq format for re-mapping
 Note regions are intersected by only the mapping 'position' of the read in the .bam file, the read-length is not used.
 """
 
+from __future__ import absolute_import
 import pysam
 import time
 import datetime
@@ -11,7 +12,7 @@ import numpy as np
 import os
 import click
 from subprocess import call
-import data_io
+from . import data_io
 
 
 def iter_bam(bam, search):

@@ -56,11 +56,10 @@ Calling structural variants
 Currently under development and not intended for use.
 Structural variant pipeline basic usage::
 
-    $ fufi run reference.fa your.bam > results.csv
+    $ fnfi run reference.fa your.bam > results.csv
 
 For help use::
 
-    $ fufi --help
-    $ fufi COMMAND --help
+    $ fnfi --help
+    $ fnfi COMMAND --help
 
-For more extensive documentation refer to the manual.

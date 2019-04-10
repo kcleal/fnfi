@@ -1,4 +1,4 @@
-import uuid
+from __future__ import absolute_import
 import datetime
 import itertools
 import os
@@ -10,17 +10,7 @@ import networkx as nx
 import pysam
 import sys
 import pickle
-import caller
-import data_io
-import assembler
-from graph_funcs import blockmodel
-import graph_funcs
-import coverage
-
-try:
-    xrange
-except NameError:
-    xrange = range
+from . import graph_funcs, coverage, assembler, data_io, caller
 
 
 def echo(*args):
@@ -207,7 +197,7 @@ def make_block_model(g, insert_size, insert_stdev, read_length, _debug=[]):
 
     if len(updated_partitons) > 0:  # Re-partition the graph
         intersection = g.subgraph([item for sublist in updated_partitons for item in sublist])
-        inner_model = blockmodel(intersection, partitions=updated_partitons)
+        inner_model = graph_funcs.blockmodel(intersection, partitions=updated_partitons)
 
     return inner_model
 

@@ -1,10 +1,10 @@
-
+from __future__ import absolute_import
 from collections import defaultdict
 import os
 import click
 import ncls
 import numpy as np
-import samclips
+from . import samclips
 
 
 def mk_dest(d):

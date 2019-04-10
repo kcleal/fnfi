@@ -1,13 +1,13 @@
 """
 Utils to generate proper sam output and flag information
 """
-
+from __future__ import absolute_import
 import re
 import click
-import c_io_funcs
+from . import c_io_funcs
 # from c_io_funcs import reverse_complement as rev_comp
 # from c_io_funcs import get_align_end_offset
-from c_samflags import set_bit
+from . import c_samflags
 
 
 def echo(*arg):
@@ -15,7 +15,7 @@ def echo(*arg):
 
 
 def set_tlen(out):
-
+    set_bit = c_samflags.set_bit
     pri_1 = out[0][1]
     pri_2 = out[1][1]
 
