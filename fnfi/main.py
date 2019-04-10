@@ -163,7 +163,7 @@ def sort_and_index(kwargs):
 def apply_ctx(ctx, kwargs):
     ctx.ensure_object(dict)
     if len(ctx.obj) == 0:  # When run is invoked from cmd line, else run was invoked from test function
-        for k, v in defaults.items() + kwargs.items():
+        for k, v in list(defaults.items()) + list(kwargs.items()):
             ctx.obj[k] = v
     i, j = map(float, ctx.obj["I"].split(","))
     if "insert_median" not in ctx.obj:
