@@ -165,7 +165,7 @@ def make_block_model(g, insert_size, insert_stdev, read_length, _debug=[]):
     # Drop any reads that are'nt in a connected component
     intersection = g.subgraph(sub_grp.nodes())
 
-    inner_model = blockmodel(intersection, partitions=[i.nodes() for i in sub_grp_cc])
+    inner_model = graph_funcs.blockmodel(intersection, partitions=[i.nodes() for i in sub_grp_cc])
     # return inner_model
     # Each node in the inner_model is actually a set of nodes.
     # For each node in the inner_model, explore the input graph for new edges

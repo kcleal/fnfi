@@ -98,7 +98,7 @@ def get_reads(args):
     outbam = pysam.AlignmentFile(out_name + ".bam", "wb", template=bam)
 
     for r in bam.fetch():
-        if r.qname in read_names and not r.flag & 2304:  # Skip not primary, and supplementary reads
+        if r.qname in read_names and not r.flag & 3328:  # Skip not primary, and supplementary reads, and duplicates
             outbam.write(r)
 
     outbam.close()
@@ -117,6 +117,7 @@ def get_reads(args):
 
 def convert_to_fastq(outname):
 
+    click.echo("Converting to fastq {}".format(outname), err=True)
     call("samtools collate -r 100000 -f -o {o} {i}".format(o=outname + ".srt.bam",
                                                            i=outname + ".bam"), shell=True)
 

@@ -148,8 +148,8 @@ def launch_external_mapper(kwargs):
 
 def sort_and_index(kwargs):
     """Convenience function to sort and index a sam file, then remove the input sam file"""
+    # samblaster --ignoreUnmated | \
     c = "samtools view -Sh {fix}.sam | \
-    samblaster --ignoreUnmated | \
     samtools sort -@ {p} -o {fix}.srt.bam - ; \
     samtools index -@ {p} {fix}.srt.bam"
     c = c.format(fix=kwargs["out_pfix"], p=kwargs["procs"])
@@ -161,6 +161,7 @@ def sort_and_index(kwargs):
 # User Interface:
 # ----------------------------------------------------------------------------------------------------------------------
 def apply_ctx(ctx, kwargs):
+    click.echo("[fnfi] Version: {}".format(version), err=True)
     ctx.ensure_object(dict)
     if len(ctx.obj) == 0:  # When run is invoked from cmd line, else run was invoked from test function
         for k, v in list(defaults.items()) + list(kwargs.items()):
@@ -204,7 +205,7 @@ $4 threads to use""", default=None, type=click.Path(exists=True))
               type=click.Path(), show_default=True)
 @click.pass_context
 def run_command(ctx, **kwargs):
-    """Run the fusion-finder pipeline."""  # Todo echo fnfi version on command line invocation of each tool
+    """Run the fusion-finder pipeline."""
     ctx = apply_ctx(ctx, kwargs)
     pipeline(ctx.obj)
 

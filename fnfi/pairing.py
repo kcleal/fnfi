@@ -77,7 +77,7 @@ def process(rt):
 
     mu, sigma = rt['isize']
 
-    pp = map(float, rt["pairing_params"])
+    pp = [float(i) for i in  rt["pairing_params"]]
     max_insertion = pp[0]
     min_aln = pp[1]
     max_homology = pp[2]

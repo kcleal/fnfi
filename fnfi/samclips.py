@@ -15,7 +15,7 @@ def echo(*arg):
 
 
 def set_tlen(out):
-    set_bit = c_samflags.set_bit
+
     pri_1 = out[0][1]
     pri_2 = out[1][1]
 
@@ -126,45 +126,45 @@ def set_mate_flag(a, b, max_d, read1_rev, read2_rev):
             reverse_B = True
     # print bflag, read2_rev, reverse_B
     # Turn off proper pair flag, might be erroneously set
-    aflag = set_bit(aflag, 1, 0)
-    bflag = set_bit(bflag, 1, 0)
+    aflag = c_samflags.set_bit(aflag, 1, 0)
+    bflag = c_samflags.set_bit(bflag, 1, 0)
 
     # Set paired
-    aflag = set_bit(aflag, 0, 1)
-    bflag = set_bit(bflag, 0, 1)
+    aflag = c_samflags.set_bit(aflag, 0, 1)
+    bflag = c_samflags.set_bit(bflag, 0, 1)
 
     # Set first and second in pair, in case not set
-    aflag = set_bit(aflag, 6, 1)
-    bflag = set_bit(bflag, 7, 1)
+    aflag = c_samflags.set_bit(aflag, 6, 1)
+    bflag = c_samflags.set_bit(bflag, 7, 1)
 
     # Turn off any mate reverse flags, these should be reset
-    aflag = set_bit(aflag, 5, 0)
-    bflag = set_bit(bflag, 5, 0)
+    aflag = c_samflags.set_bit(aflag, 5, 0)
+    bflag = c_samflags.set_bit(bflag, 5, 0)
 
     # If either read is unmapped
     if aflag & 4:
-        bflag = set_bit(bflag, 3, 1)  # Position 3, change to 1
+        bflag = c_samflags.set_bit(bflag, 3, 1)  # Position 3, change to 1
     if bflag & 4:
-        aflag = set_bit(aflag, 3, 1)
+        aflag = c_samflags.set_bit(aflag, 3, 1)
 
     # If either read on reverse strand
     if aflag & 16:
-        bflag = set_bit(bflag, 5, 1)
+        bflag = c_samflags.set_bit(bflag, 5, 1)
     if bflag & 16:
-        aflag = set_bit(aflag, 5, 1)
+        aflag = c_samflags.set_bit(aflag, 5, 1)
 
     # Set unmapped
     arname = a[1]
     apos = a[2]
     if apos == "0":  # -1 means unmapped
-        aflag = set_bit(aflag, 2, 1)
-        bflag = set_bit(bflag, 8, 1)
+        aflag = c_samflags.set_bit(aflag, 2, 1)
+        bflag = c_samflags.set_bit(bflag, 8, 1)
 
     brname = b[1]
     bpos = b[2]
     if b[2] == "0":
-        bflag = set_bit(bflag, 2, 1)
-        aflag = set_bit(aflag, 8, 1)
+        bflag = c_samflags.set_bit(bflag, 2, 1)
+        aflag = c_samflags.set_bit(aflag, 8, 1)
 
     # Set RNEXT and PNEXT
     a[5] = brname
@@ -185,29 +185,29 @@ def set_mate_flag(a, b, max_d, read1_rev, read2_rev):
                 if abs(p1 - p2) < max_d:
                     # Check for FR or RF orientation
                     if (p1 < p2 and (not aflag & 16) and (bflag & 16)) or (p2 <= p1 and (not bflag & 16) and (aflag & 16)):
-                        aflag = set_bit(aflag, 1, 1)
-                        bflag = set_bit(bflag, 1, 1)
+                        aflag = c_samflags.set_bit(aflag, 1, 1)
+                        bflag = c_samflags.set_bit(bflag, 1, 1)
 
                         # If proper pair, sometimes the mate-reverse-strand flag is set
                         # this subsequently means the sequence should be reverse complemented!
                         if aflag & 16 and not bflag & 32:
                             # Mate-reverse strand not set
-                            bflag = set_bit(bflag, 5, 1)
+                            bflag = c_samflags.set_bit(bflag, 5, 1)
                             # reverse_B = True
 
                         if not aflag & 16 and bflag & 32:
                             # Mate-reverse should'nt be set
-                            bflag = set_bit(bflag, 5, 0)
+                            bflag = c_samflags.set_bit(bflag, 5, 0)
                             reverse_A = True
 
                         if bflag & 16 and not aflag & 32:
                             # Mate-reverse strand not set
-                            aflag = set_bit(aflag, 5, 1)
+                            aflag = c_samflags.set_bit(aflag, 5, 1)
                             # reverse_A = True
 
                         if not bflag & 16 and aflag & 32:
                             # Mate-revsere should'nt be set
-                            aflag = set_bit(aflag, 5, 0)
+                            aflag = c_samflags.set_bit(aflag, 5, 0)
                             reverse_B = True
 
     a[0] = aflag
@@ -223,20 +223,20 @@ def set_supp_flags(sup, pri, ori_primary_reversed, primary_will_be_reversed):
 
     # Set paired and supplementary flag
     if not supflag & 1:
-        supflag = set_bit(supflag, 0, 1)
+        supflag = c_samflags.set_bit(supflag, 0, 1)
     if not supflag & 2048:
-        supflag = set_bit(supflag, 11, 1)
+        supflag = c_samflags.set_bit(supflag, 11, 1)
 
     # If primary is on reverse strand, set the mate reverse strand tag
     if priflag & 16 and not supflag & 32:
-        supflag = set_bit(supflag, 5, 1)
+        supflag = c_samflags.set_bit(supflag, 5, 1)
     # If primary is on forward srand, turn off mate rev strand
     if not priflag & 16 and supflag & 32:
-        supflag = set_bit(supflag, 5, 0)
+        supflag = c_samflags.set_bit(supflag, 5, 0)
 
     # Turn off not-primary-alignment
     if supflag & 256:
-        supflag = set_bit(supflag, 8, 0)
+        supflag = c_samflags.set_bit(supflag, 8, 0)
 
     rev_sup = False
     if ori_primary_reversed:
@@ -547,7 +547,7 @@ def fixsam(template):
                 # print reverse_me, rev_B, template["read2_reverse"], template["read2_seq"]
                 # print aln[8]
             # Turn off not primary here
-            aln[0] = set_bit(aln[0], 8, 0)
+            aln[0] = c_samflags.set_bit(aln[0], 8, 0)
 
     out = replace_sa_tags(out)
 

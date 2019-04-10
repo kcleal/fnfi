@@ -136,7 +136,7 @@ def sam_itr(args):
     first_line = ""
     for t in itr:
 
-        t = str(t.decode("ascii"))
+        # t = str(t.decode("ascii"))
 
         if t[0] == "@":
             header_string += t
@@ -154,7 +154,7 @@ def sam_itr(args):
     yield (first_line, last_seen_chrom, ol)
 
     for t in itr:
-        t = str(t.decode("ascii"))
+        # t = str(t.decode("ascii"))
         line = t.split("\t", 4)
 
         if line[3] != last_seen_chrom:
