@@ -1,4 +1,4 @@
-# Networkx functions, from v1/2. Saved here for compatability
+# Networkx functions, from v1/2. Saved here for compatibility
 from __future__ import absolute_import
 import networkx as nx
 import click
@@ -453,6 +453,17 @@ def dag_longest_path(G, weight='weight', default_weight=1):
     return path
 
 
+def skip_traingles(G, u, v):
+    # Dont induce triangles. Prevents most redundant edges being formed
+    if not G.has_node(u) or not G.has_node(v):
+        return False
+
+    for out_u in G[u]:
+        for neighbor_u in G[out_u]:
+            if neighbor_u == v:
+                return G[out_u][neighbor_u]["c"]
+
+
 def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=()):
     t0 = time.time()
     click.echo("Building graph from {} regions".format(len(input_windows)), err=True)
@@ -463,7 +474,6 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=()):
     read_index_buffer = dict()  # keys are int, values are (rname, flag, pos)
 
     scope = Scoper(max_dist=max_dist)
-    # pileup = PileupSequences(distance=250)
 
     count = 0
     buf_del_index = 0
@@ -471,15 +481,21 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=()):
     grey_added = 0
     black_edges = 0
 
+    ii = 0
     G = nx.Graph()
     for widx, window in enumerate(input_windows):
 
         for r in infile.fetch(*window):
 
             if len(r.cigar) == 0 or r.flag & 1028:  # Unmapped or duplicate
+
                 continue
 
             n1 = (r.qname, r.flag, r.pos)
+
+            # if n1 not in name_to_node:
+            #     name_to_node[n1] = ii
+            ii += 1
 
             # Add read to buffer
             read_buffer[n1] = r
@@ -512,41 +528,53 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=()):
             if not ol_include:
                 G.add_node(n1, p=(r.rname, r.pos))
 
-            #targets = set([])
+            # targets = set([])
             gg = 0
             bb = 0
             yy = 0
-
+            max_gg = 1  # 6
+            max_bb = 1  # 10
+            max_yy = 1  # 6
             for t, ol, sup_edge in scope.iterate():  # Other read, overlap current read, supplementary edge
                 if not t:
                     break
 
                 n2 = (t.qname, t.flag, t.pos)
                 all_flags[t.qname].add((t.flag, t.pos))
-
+                # assert n2 in name_to_node
                 # Four types of edges; black means definite match with overlapping soft-clips. Grey means similar
                 # rearrangement with start and end coords on reference genome.
                 # Yellow means supplementary (with no good soft-clip) matches a primary
-                # Finally white edge means a read1 to read2 edge
-                # if n1 in targets:
-                #     echo(n1, n2, ol, sup_edge)
+                # Finally white edge means a read1 to read2 mate-pair edge
+
+                # inferred_edge = skip_traingles(G, n1, n2)
+                # if inferred_edge:
+                #     if inferred_edge == "b":
+                #         bb += 1
+                #     elif inferred_edge == "g":
+                #         gg += 1
+                #     elif inferred_edge == "y":
+                #         yy += 1
+                #     continue
+
+                if bb > max_bb and gg > max_gg:
+                    break
 
                 if ol:  # and not sup_edge:
+                    if bb <= max_bb:  # Stop the graph getting unnecessarily dense
+                        prob_same = c_cluster_funcs.alignments_match(r.seq, t.seq,
+                                    0 if r.cigartuples[0][0] != 4 else r.cigartuples[0][1],
+                                    0 if t.cigartuples[0][0] != 4 else t.cigartuples[0][1],
+                                    r.pos, t.pos, r.query_qualities, t.query_qualities)
 
-                    prob_same = c_cluster_funcs.alignments_match(r.seq, t.seq,
-                                0 if r.cigartuples[0][0] != 4 else r.cigartuples[0][1],
-                                0 if t.cigartuples[0][0] != 4 else t.cigartuples[0][1],
-                                r.pos, t.pos, r.query_qualities, t.query_qualities)
+                        if prob_same > 0.01:  # Add a black edge
 
-                    if prob_same > 0.01:  # Add a black edge
-                        if bb <= 10:  # Stop the graph getting unnecessarily dense
                             G.add_node(n1, p=(r.rname, r.pos))
                             G.add_node(n2, p=(t.rname, t.pos))
                             G.add_edge(n1, n2, c="b")
                             black_edges += 1
                             bb += 1
-
-                    continue
+                            continue  # Skip looking for other edges
 
                 # Make sure both are discordant, mapped to same chromosome
                 if (r.flag & 2) or (t.flag & 2) or r.rnext == -1 or r.rnext != t.rnext:
@@ -561,24 +589,21 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=()):
                             add_grey = True
 
                     if add_grey:
-                        if gg <= 6:
+                        if gg <= max_gg:
                             G.add_node(n1, p=(r.rname, r.pos))
                             G.add_node(n2, p=(t.rname, t.pos))
                             G.add_edge(n1, n2, c="g")
                             gg += 1
                             grey_added += 1
-
                         continue
 
                 elif sup_edge:
                     # Add a yellow edge
-                    if yy <= 6:
+                    if yy <= max_yy:
                         G.add_node(n1, p=(r.rname, r.pos))
                         G.add_node(n2, p=(t.rname, t.pos))
                         G.add_edge(n1, n2, c="y")
                         yy += 1
-
-                    continue
 
     # Add read-pair information to the graph, link regions together
     new_edges = []
@@ -598,8 +623,11 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=()):
                     new_edges.append((u, v, {"c": "w"}))
 
     G.add_edges_from(new_edges)
+
     t1 = time.time() - t0
-    click.echo("Built cluster graph {}s".format(round(t1, 1)), err=True)
+    click.echo("Built cluster graph {}s, edges={}, nodes={}".format(round(t1, 1), len(G.edges()), len(G.nodes())),
+               err=True)
+
     return G, read_buffer
 
 

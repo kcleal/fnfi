@@ -13,7 +13,7 @@ Install using::
     # Or
     $ pip install .
 
-Requires Python >= 2.7, c++ compatible compiler. Python packages needed: click,
+Requires Python >= 3, c++ compatible compiler. Python packages needed: click,
 numpy, pandas, pysam, pybedtools, natsort, networkx, scikit-learn, ncls.
 
 Required external tools on path: `samtools <http://www.htslib.org/>`_

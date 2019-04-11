@@ -4,6 +4,8 @@ import itertools
 import os
 import multiprocessing
 import time
+import numpy as np
+import random
 from collections import defaultdict
 import click
 import networkx as nx
@@ -267,7 +269,7 @@ def get_reads(infile, sub_graph, max_dist, rl, read_buffer):
         for chrom, crds in coords:
             d = [i[1] for i in crds]
             chrom = infile.get_reference_name(chrom)
-            m = [[chrom, d[0] - rl, d[0] + 2 * rl]]
+            m = [[chrom, d[0] - (4 * rl), d[0] + (4 * rl)]]
 
             for x in d[1:]:
                 if x - m[-1][-1] < max_dist:
@@ -516,6 +518,8 @@ def get_preliminary_events(G, read_buffer, infile, args, max_dist, regions, regi
 
 def cluster_reads(args):
     t0 = time.time()
+    np.random.seed(1)
+    random.seed(1)
     try:
         model = pickle.load(open(args["model"], "rb"))
         click.echo("Model loaded from {}".format(args["model"]), err=True)

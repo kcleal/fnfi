@@ -336,12 +336,9 @@ def test_run_command(ctx, **kwargs):
         call(com, shell=True)
         success = True
 
-    except OSError as e:
-        click.echo("Skipping align test using longer contigs", err=True)
-        if e.errno == os.errno.ENOENT:
-            click.echo("No such file or directory", err=True)
-        else:
-            raise SystemError("Something went wrong")
+    except OSError:
+        raise OSError("Something went wrong")
+
     if success:
         sam = "{dest}/long_contigs.last.sam".format(dest=kwargs["dest"])
         output = "{dest}/long_contigs.fnfi.sam".format(dest=kwargs["dest"])
@@ -350,17 +347,3 @@ def test_run_command(ctx, **kwargs):
 
         call("fnfi align --paired False {sam} > {o}".format(sam=sam, o=output), shell=True)
 
-
-if __name__ == "__main__":
-
-    k = defaults
-    k["sv_aligns"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/output/DB120.fnfi.srt.rmdup.bam"  #  DB133.fnfi.srt.rmdup.bam DB120.hq_all.fnfi.srt.bam  # DB120.fnfi.srt.bam  # DB120.hq_all.fnfi.srt.rmdup.bam
-    k["include"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/test/include_tels.bed"
-    k["svs_out"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/DB120.test.csv"
-    k["procs"] = 1
-    k["model"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/trained_fnfi2_clf2_extratrees2_model.pkl"
-    k["I"] = "142,187"
-    k["dest"] = "/Users/kezcleal/Documents/Data/fusion_finder_development/kates_benchmarked_data/fnfi2_out/"
-    k["reference"] = "/Users/kezcleal/Documents/Data/db/hg38/hg38.fa"
-
-    cluster.cluster_reads(k)
