@@ -47,12 +47,18 @@ def get_reads(args):
 
     clip_length = args["clip_length"]
     if args["dest"]:
-        out_name = args["dest"] + "/" + args["bam"].rsplit("/", 1)[1].rsplit(".", 1)[0] + "." + args["post_fix"]
+
+        if "/" in args["bam"]:
+            out_name = args["dest"] + "/" + args["bam"].rsplit("/", 1)[1].rsplit(".", 1)[0] + "." + args["post_fix"]
+        else:
+            out_name = args["dest"] + "/" + args["bam"].rsplit(".", 1)[0] + "." + args["post_fix"]
         if not os.path.exists(args["dest"]):
             os.makedirs(args["dest"])
     else:
-        out_name = os.getcwd() + "/" + args["bam"].rsplit("/", 1)[1].rsplit(".", 1)[0] + "." + args["post_fix"]
-        # out_name = args["bam"].rsplit(".", 1)[0] + "." + args["post_fix"]
+        if "/" in args["bam"]:
+            out_name = os.getcwd() + "/" + args["bam"].rsplit("/", 1)[1].rsplit(".", 1)[0] + "." + args["post_fix"]
+        else:
+            out_name = os.getcwd() + "/" + args["bam"].rsplit(".", 1)[0] + "." + args["post_fix"]
 
     if args["mapper"] == "last":
         call("samtools view -H -o {}.dict {}".format(out_name, args["bam"]), shell=True)
