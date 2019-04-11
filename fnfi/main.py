@@ -184,6 +184,7 @@ def cli():
 @cli.command("run")
 @click.argument('reference', required=True, type=click.Path(exists=False))
 @click.argument("bam", required=True, type=click.Path(exists=True))
+@click.option("-o", "--svs-out", help="Structural variants output, default=stdout", required=False, type=click.Path())
 @click.option('--include', help=".bed file, limit calls to regions", default=None, type=click.Path(exists=True))
 @click.option('--search', help=".bed file, limit search to regions", default=None, type=click.Path(exists=True))
 @click.option('--exclude', help=".bed file, do not search/call SVs within regions. Overrides include/search",
@@ -270,7 +271,7 @@ def fnfi_aligner(ctx, **kwargs):
 
 @cli.command("call-events")
 @click.argument('sv-aligns', required=True, type=click.Path(exists=True))
-@click.argument("svs-out", required=False, type=click.Path())
+@click.option("-o", "--svs-out", help="Structural variants output, default=stdout", required=False, type=click.Path())
 @click.option('--clip-length', help="Minimum soft-clip length; >= threshold are kept.", default=defaults["clip_length"],
               type=int, show_default=True)
 @click.option('--max-cov', help="Regions with > max-cov that do no overlap 'include' are discarded.",
