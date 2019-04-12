@@ -624,7 +624,6 @@ def get_raw_coverage_information(r, regions, regions_depth):
 
     r["kind"] = kind
     r["raw_reads_10kb"] = reads_10kb
-    r["connectivity"] = "Test"
 
     return r
 

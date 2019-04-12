@@ -571,7 +571,7 @@ def cluster_reads(args):
     # Out order
     k = ["chrA", "posA", "chrB", "posB", "sample", "id", "kind", "svtype", "join_type", "cipos95A", "cipos95B",
          "DP", "DN", "DApri", "DAsupp",  "NMpri", "NMsupp", "MAPQpri", "MAPQsupp", "NP",
-          "maxASsupp",  "pe", "supp", "sc", "block_edge", "connectivity",
+          "maxASsupp",  "pe", "supp", "sc", "block_edge",
          "raw_reads_10kb",
           "linked", "contigA", "contigB", "mark", "mark_seq", "mark_ed", "templated_ins_info",
          "templated_ins_len", "Prob"]

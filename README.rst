@@ -16,7 +16,7 @@ Install using::
 Requires Python >= 3, c++ compatible compiler. Python packages needed: click,
 numpy, pandas, pysam, pybedtools, natsort, networkx, scikit-learn, ncls.
 
-Required external tools on path: `samtools <http://www.htslib.org/>`_
+Required external tools on path: `samtools >=1.4 <http://www.htslib.org/>`_
 
 Recommended external tools on path: `bwa mem <https://github.com/lh3/bwa/>`_
 

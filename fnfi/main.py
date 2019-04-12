@@ -289,8 +289,6 @@ def fnfi_aligner(ctx, **kwargs):
               type=int, show_default=True)
 @click.option("--model", help="A model trained with fnfi train", default=defaults["model"],
               type=click.Path(), show_default=True)
-@click.option('--reference', help="If provided, contigs will be mapped using bwa", default=None,
-              type=click.Path(exists=True), required=False)
 @click.pass_context
 def call_events(ctx, **kwargs):
     """Clusters reads into SV-events. Takes as input the original .bam file, and a .bam file with only sv-like reads."""
