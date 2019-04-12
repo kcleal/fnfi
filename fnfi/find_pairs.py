@@ -11,7 +11,7 @@ import datetime
 import numpy as np
 import os
 import click
-from subprocess import call
+from subprocess import call, Popen, PIPE
 from . import data_io
 
 
@@ -124,8 +124,20 @@ def get_reads(args):
 def convert_to_fastq(outname):
 
     click.echo("Converting to fastq {}".format(outname), err=True)
-    call("samtools collate -r 100000 -f -o {o} {i}".format(o=outname + ".srt.bam",
-                                                           i=outname + ".bam"), shell=True)
+    samtools_version = None
+    try:
+        samtools_version = Popen("samtools --version", shell=True, stderr=PIPE, stdout=PIPE).communicate()[0]
+        samtools_version = float(str(samtools_version).split("\\n")[0].split(" ")[1])
+    except:
+        # Couldnt parse samtools version number
+        pass
+
+    if samtools_version is not None and samtools_version >= 1.9:
+        call("samtools collate -r 100000 -f -o {o} {i}".format(o=outname + ".srt.bam",
+                                                               i=outname + ".bam"), shell=True)
+    else:
+        call("samtools collate -o {o} {i}".format(o=outname + ".srt.bam", i=outname + ".bam"), shell=True)
+
 
     call("samtools fastq -s /dev/null -1 {fq1} -2 {fq2} {bam}".format(fq1=outname + "1.fq",
                                                                       fq2=outname + "2.fq",
