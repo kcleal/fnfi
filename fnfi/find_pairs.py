@@ -136,7 +136,7 @@ def convert_to_fastq(outname):
         call("samtools collate -r 100000 -f -o {o} {i}".format(o=outname + ".srt.bam",
                                                                i=outname + ".bam"), shell=True)
     else:
-        call("samtools sort -o {o} {i}".format(o=outname + ".srt.bam", i=outname + ".bam"), shell=True)
+        call("samtools sort -n -o {o}.srt.bam {i}.bam".format(o=outname, i=outname), shell=True)
 
     call("samtools fastq -s /dev/null -1 {fq1} -2 {fq2} {bam}".format(fq1=outname + "1.fq",
                                                                       fq2=outname + "2.fq",
