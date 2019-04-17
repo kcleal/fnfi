@@ -288,9 +288,12 @@ def add_sequence_back(item, reverse_me, template):
     cigar_length = sum([int(c[i]) for i in range(0, len(c), 2) if c[i + 1] not in "DH"])
     if flag & 64:  # Read1
         seq = template["read1_seq"]
-    else:
+    elif flag & 128:
         seq = template["read2_seq"]
-
+    else:
+        seq = template["read1_seq"]  # Unpaired
+    echo(flag)
+    echo(seq)
     if len(seq) != cigar_length:
         return item  # Cigar length is not set properly by mapper
 
