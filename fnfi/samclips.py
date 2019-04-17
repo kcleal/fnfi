@@ -292,8 +292,7 @@ def add_sequence_back(item, reverse_me, template):
         seq = template["read2_seq"]
     else:
         seq = template["read1_seq"]  # Unpaired
-    echo(flag)
-    echo(seq)
+
     if len(seq) != cigar_length:
         return item  # Cigar length is not set properly by mapper
 
