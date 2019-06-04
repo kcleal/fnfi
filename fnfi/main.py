@@ -49,6 +49,9 @@ align_args = {}
 
 version = pkg_resources.require("fnfi")[0].version
 
+# Todo put fnfi version in output, and model name if used
+# Todo Option to change the post-fix of files (from .fnfi.)
+# Todo Make vcf output option
 
 def pipeline(kwargs):
     t0 = time.time()

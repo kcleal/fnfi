@@ -3,10 +3,11 @@ from collections import Counter, defaultdict
 import click
 import networkx as nx
 import numpy as np
-from . import assembler, data_io
+from . import assembler, data_io, c_io_funcs
 import pandas as pd
 from subprocess import call
 import os
+import time
 
 
 def echo(*args):
@@ -38,9 +39,9 @@ def guess_break_point(read, bam):
         right = read.cigartuples[-1][0]
     if left > 0 or right > 0:
         if left > right:
-            return 5, read.qname, bam.get_reference_name(read.rname), read.pos, True
+            return 5, {read.qname}, bam.get_reference_name(read.rname), read.pos, True
         else:
-            return 3, read.qname, bam.get_reference_name(read.rname), read.reference_end, True
+            return 3, {read.qname}, bam.get_reference_name(read.rname), read.reference_end, True
     else:
         # Breakpoint position is beyond the end of the last read
         if read.flag & 16:  # Read on reverse strand guess to the left
@@ -49,7 +50,7 @@ def guess_break_point(read, bam):
         else:  # Guess right
             p = read.reference_end
             t = 3
-        return t, read.qname, bam.get_reference_name(read.rname), int(p), False
+        return t, {read.qname}, bam.get_reference_name(read.rname), int(p), False
 
 
 def process_node_set(node_set, all_reads, bam):
@@ -181,7 +182,7 @@ def separate_mixed(break_points_dict, thresh=500):
 def call_break_points(c1, c2):
     """
     Makes a call from a list of break points. Can take a list of break points, or one merged cluster of breaks.
-    Outliers are dropped. Breakpoints are clustered using kmeans into sets
+    Outliers are dropped. Breakpoints are clustered into sets
     :param c1: A 5 tuple (3 or 5 join, set([(read_name, flag)..]), chromosome, break point position,
                           soft-clipped)
     :param c2: Same as c1
@@ -347,6 +348,73 @@ def breaks_from_one_side(node_set, reads, bam):
         if nn in reads:
             tup[(nn, nf, np)] = guess_break_point(reads[nn][(nf, np)], bam)
     return pre_process_breakpoints(tup).values()  # Don't return whole dict
+
+
+def one_read(bm, reads, bam, insert_size, insert_stdev,):
+    # Similar to single (below) but with no assembly step
+    bmnodes = list(bm.nodes())
+
+    assert len(bmnodes) == 1
+
+    break_points = process_node_set(bmnodes[0], reads, bam)  # Dict, keyed by node
+
+    if break_points is None or len(break_points) == 0:
+        return
+
+    break_points = pre_process_breakpoints(break_points)
+
+    if not break_points:
+        return
+
+    dict_a, dict_b = separate_mixed(break_points, thresh=insert_size + insert_stdev)
+
+    info, contrib_reads = call_break_points(dict_a.values(), dict_b.values())
+    info["linked"] = 0
+    info["total_reads"] = len(contrib_reads)
+    both = list(dict_a.keys()) + list(dict_b.keys())
+
+    info['pe'] = len([1 for k, v in Counter([i[0] for i in both]).items() if v > 1])
+    info['supp'] = len([1 for i in both if i[1] & 2048])
+    info['sc'] = len([1 for name, flag, pos in both if "S" in reads[name][(flag, pos)].cigarstring])
+    info["block_edge"] = 0
+
+    info["contig"] = None
+    info["contig_rev"] = None
+    info["contig2"] = None
+    info["contig2_rev"] = None
+    if len(dict_a.keys()) == 1:
+        key = list(dict_a.keys())[0]
+        ra = reads[key[0]][tuple(key[1:])]
+        t = ra.cigartuples
+        if t[0][0] == 4 or t[-1][0] == 4:
+            seq = ra.seq
+            if t[0][0] == 4:  # Soft-clipped
+                seq = seq[:t[0][1]].lower() + seq[t[0][1]:]
+
+            if t[-1][0] == 4:
+                seq = seq[:-t[-1][1]] + seq[-t[0][1]:].lower()
+
+            info["contig"] = seq
+            info["contig_rev"] = c_io_funcs.reverse_complement(seq, len(seq))
+
+    if len(dict_b.keys()) == 1:
+        key = list(dict_b.keys())[0]
+        rb = reads[key[0]][tuple(key[1:])]
+        t = rb.cigartuples
+        if t[0][0] == 4 or t[-1][0] == 4:
+            seq = rb.seq
+            if t[0][0] == 4:  # Soft-clipped
+                seq = seq[:t[0][1]].lower() + seq[t[0][1]:]
+
+            if t[-1][0] == 4:
+                seq = seq[:-t[-1][1]] + seq[-t[0][1]:].lower()
+
+            info["contig2"] = seq
+            info["contig2_rev"] = c_io_funcs.reverse_complement(seq, len(seq))
+
+    info.update(score_reads(bmnodes[0], reads))
+
+    return info
 
 
 def single(parent_graph, bm, reads, bam, insert_size, insert_stdev, clip_length, _debug_k, roi=None):
@@ -530,19 +598,26 @@ def reads_from_bm_nodeset(bm_nodeset, reads):
 def call_from_block_model(bm_graph, parent_graph, reads, bam, clip_length, insert_size, insert_stdev, _debug_k=False):
     roi = None  # "HISEQ2500-10:539:CAV68ANXX:7:2115:19198:88808"
     # Block model is not guaranteed to be connected
-    for bm in nx.connected_component_subgraphs(bm_graph):
+    cc = list(nx.connected_component_subgraphs(bm_graph))
+
+    for bm in cc:
 
         rds = reads_from_bm_nodeset(bm.nodes(), reads)
+
         if len(rds) == 0:
             continue  # If reads could'nt be collected
 
-        if len(bm.edges()) > 1:
+        if len(rds) == 1:
+            # Single read only
+            yield one_read(bm, rds, bam, insert_size, insert_stdev)
+
+        elif len(bm.edges()) > 1:
             # Break apart connected
             for event in multi(parent_graph, bm, rds, bam, clip_length, roi=roi):
                 yield event
 
         elif len(bm.nodes()) == 1:
-            # Single isolated node
+            # Single isolated node, multiple reads
             yield single(parent_graph, bm, rds, bam, insert_size, insert_stdev, clip_length, _debug_k, roi=roi)
 
         elif len(bm.edges()) == 1:

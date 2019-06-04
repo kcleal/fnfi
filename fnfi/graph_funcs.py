@@ -611,6 +611,7 @@ def construct_graph(infile, max_dist, tree, buf_size=100000, input_windows=()):
         # Add white edges between read-pairs which are NOT joined by edges in the subgraph
         # all_flags: rname: (flag, pos)
         nodes_to_check = [(n, all_flags[n]) for n, f, p in g.nodes()]
+
         for n, flags in nodes_to_check:  # 2 reads, or 3 if supplementary read
 
             for f1, f2 in itertools.combinations_with_replacement(flags, 2):  # Check all edges within template

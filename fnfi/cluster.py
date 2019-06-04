@@ -460,6 +460,7 @@ def get_preliminary_events(G, read_buffer, infile, args, max_dist, regions, regi
     if _debug_k:
         echo("_debugk for get_prelim_events is ", _debug_k)
     t0 = time.time()
+
     for grp in nx.connected_component_subgraphs(G, copy=False):
 
         reads = get_reads(infile, grp, max_dist, approx_rl, read_buffer)
@@ -498,8 +499,10 @@ def get_preliminary_events(G, read_buffer, infile, args, max_dist, regions, regi
         potential_events, tested_edges = merge_events(potential_events, max_dist, regions, tested_edges,
                                                       try_rev=False, pick_best=True)
 
-        edges_merge_tested = edges_merge_tested.union(tested_edges)
+        edges_merge_tested |= tested_edges
+
         block_edge_events += potential_events
+
     click.echo("Processed chunks {}s".format(round(time.time() - t0, 1)), err=True)
     # Perform a final merge across block nodes that haven't already been tested
     # Pick best=True prevents adding up of pe/supp, instead the best result is chosen
@@ -513,6 +516,7 @@ def get_preliminary_events(G, read_buffer, infile, args, max_dist, regions, regi
             if event_dict:
                 preliminaries.append(event_dict)
     click.echo("Merged raw {}s".format(round(time.time() - t0, 1)), err=True)
+
     return preliminaries
 
 

@@ -3,6 +3,7 @@ from collections import OrderedDict
 import click
 from . import data_io
 from sortedcontainers import SortedDict
+import numpy as np
 
 
 def echo(*args):
@@ -64,7 +65,7 @@ def scan_whole_genome(inputbam, max_cov, tree):
         if len(approx_read_length) < 1000:
             approx_read_length.append(len(a.seq))
 
-    approx_read_length = float(sum(approx_read_length)) / len(approx_read_length)
+    approx_read_length = np.array(approx_read_length).mean()
 
     total_dropped, reads_dropped = 0, 0
     intervals = []
@@ -91,48 +92,47 @@ def scan_regions(inputbam, include, max_cov, tree):
 
     roi = data_io.get_include_reads(include, inputbam)
     approx_read_length = []
+    inserts = []
 
-    target_regions = set([])
-    intervals_to_check = set([])
+    intervals_to_check = set([])  # A list of regions containing many bins
+    target_regions = set([])  # A list of individual bins to work on
     for a in roi:
 
         if a.flag & 1540:
             # Unmapped, fails Q, duplicate
             continue
 
+        if a.flag & 266:
+            # not primary, mate unmapped, proper-pair
+            continue
+
         # Skip if both positions are non-canonical chromosomes
         rname, rnext = inputbam.get_reference_name(a.rname), inputbam.get_reference_name(a.rnext)
 
-        bin_pos1 = (int(a.pos) / 100) * 100
-        bin_pos2 = (int(a.pnext) / 100) * 100
+        bin_pos1 = int((int(a.pos) / 100)) * 100
+        bin_pos2 = int((int(a.pnext) / 100)) * 100
 
-        # Need to check 10kb around mate, find all intervals to check
+        # Need to check 10kb around pair and mate, find all intervals to check (limits where SVs will be called)
         c1 = (rname, 0 if bin_pos1 - 10000 < 0 else bin_pos1 - 10000, bin_pos1 + 10000)
         c2 = (rnext, 0 if bin_pos2 - 10000 < 0 else bin_pos2 - 10000, bin_pos2 + 10000)
-        if c1 not in intervals_to_check:
-            intervals_to_check.add(c1)
-        if c2 not in intervals_to_check:
-            intervals_to_check.add(c2)
 
-        if a.flag & 2314:
-            # not primary, mate unmapped, supplementary, proper-pair
-            continue
-
-        sideA = (rname, bin_pos1)
-        sideB = (rnext, bin_pos2)
-
-        if sideA not in target_regions:
-            target_regions.add(sideA)
-        if sideB not in target_regions:
-            target_regions.add(sideB)
+        intervals_to_check.add(c1)
+        intervals_to_check.add(c2)
 
         if len(approx_read_length) < 1000:
             if not a.flag & 2048:
                 approx_read_length.append(len(a.seq))
+                if abs(a.template_length) < 1000:
+                    inserts.append(int(abs(a.template_length)))
+
+        # Target regions include upstream and downstream of target - means supplementary reads are not missed later
+        target_regions.add((rname, bin_pos1))
+        target_regions.add((rnext, bin_pos2))
 
     # Get coverage within 10kb
     merged_to_check = merge_intervals(intervals_to_check, srt=True)
 
+    # Get coverage in regions
     for item in merged_to_check:
         for a in inputbam.fetch(*item):
 
@@ -141,8 +141,9 @@ def scan_regions(inputbam, include, max_cov, tree):
                 continue
 
             rname = item[0]
-            bin_pos1 = (int(a.pos) / 100) * 100
+            bin_pos1 = int(int(a.pos) / 100) * 100
 
+            # Get depth at this locus
             # Use an ordered dict, obviates need for sorting when merging intervals later on
             if rname not in depth_d:
                 depth_d[rname] = SortedDict()
@@ -151,17 +152,38 @@ def scan_regions(inputbam, include, max_cov, tree):
             else:
                 depth_d[rname][bin_pos1] += 1
 
-    approx_read_length = float(sum(approx_read_length)) / len(approx_read_length)
-    click.echo("Read length {}".format(int(approx_read_length)), err=True)
+    approx_read_length = np.array(approx_read_length)
+    if len(inserts) > 0:
+        insert_std = np.array(inserts).std()
+    else:
+        insert_std = 600
+    approx_read_length = approx_read_length.mean()
+
+    # Increase target region space here. Currently target regions only point to primary alignments, increase to capture
+    # supplementary mappings nearby
+    pad = insert_std * 3
+
+    new_targets = set([])
+    for chrom, primary_site in target_regions:
+        # Pad is determined by insert stdev
+        lower_bin = int((primary_site - pad) / 100) * 100
+        lower_bin = 0 if lower_bin < 0 else lower_bin
+        upper_bin = (int((primary_site + pad) / 100) * 100) + 100
+        for s in range(lower_bin, upper_bin, 100):
+            new_targets.add((chrom, s))
 
     total_dropped, reads_dropped = 0, 0
     intervals = []
-    for chrom, bin_start in target_regions:
-        d = depth_d[chrom][bin_start]
+    for chrom, bin_start in new_targets:
+
+        if bin_start in depth_d[chrom]:
+            d = depth_d[chrom][bin_start]
+        else:
+            d = 0  # No reads found
         bin_cov = (d * approx_read_length) / 100
 
         if bin_cov < max_cov or data_io.intersecter(tree, chrom, bin_start, bin_start + 100):
-            intervals.append((chrom, bin_start, bin_start + 201))  # Will cause a 1 bp overlap with adjacent window
+            intervals.append((chrom, int(bin_start), int(bin_start + 201)))  # 1 bp overlap with adjacent window
         else:
             total_dropped += 200
             reads_dropped += d
