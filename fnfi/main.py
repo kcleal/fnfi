@@ -43,6 +43,7 @@ defaults = {
             "I": "210,175",
             "mark_dups": "True",
             "model": None,
+            "mq": None,
             }
 
 align_args = {}
@@ -52,6 +53,7 @@ version = pkg_resources.require("fnfi")[0].version
 # Todo put fnfi version in output, and model name if used
 # Todo Option to change the post-fix of files (from .fnfi.)
 # Todo Make vcf output option
+
 
 def pipeline(kwargs):
     t0 = time.time()
@@ -151,7 +153,6 @@ def launch_external_mapper(kwargs):
 
 def sort_and_index(kwargs):
     """Convenience function to sort and index a sam file, then remove the input sam file"""
-    # samblaster --ignoreUnmated | \
     c = "samtools view -Sh {fix}.sam | \
     samtools sort -@ {p} -o {fix}.srt.bam - ; \
     samtools index -@ {p} {fix}.srt.bam"
@@ -207,6 +208,8 @@ $4 threads to use""", default=None, type=click.Path(exists=True))
               default=defaults["I"], type=str)
 @click.option("--model", help="A model trained with fnfi train", default=defaults["model"],
               type=click.Path(), show_default=True)
+@click.option('--mq', help="MapQ recalibration model", default=defaults["mq"],
+              type=click.Path(), show_default=True, required=False)
 @click.pass_context
 def run_command(ctx, **kwargs):
     """Run the fusion-finder pipeline."""
@@ -240,6 +243,8 @@ def find_reads(ctx, **kwargs):
               type=click.Choice(["True", "False"]), show_default=True)
 @click.option('-I', help="Insert size and stdev as 'FLOAT,FLOAT'",
               default=defaults["I"], type=str, show_default=True)
+@click.option('--mq', help="MapQ recalibration model", default=defaults["mq"],
+              type=click.Path(), show_default=True, required=False)
 @click.option("--replace-hardclips",  help="Replace hard-clips with soft-clips when possible",
               default=defaults["replace_hardclips"], type=click.Choice(["True", "False"]), show_default=True)
 @click.option("--fq1",  help="Fastq reads 1, used to add soft-clips to all hard-clipped read 1 alignments",

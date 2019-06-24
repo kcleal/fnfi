@@ -16,7 +16,7 @@ def mk_dest(d):
 
 
 def make_template(rows, args, max_d, last_seen_chrom, fq):
-    # Make a picklable data object for multiprocessing
+    # Make a pickle-able data object for multiprocessing
     return {"isize": (args["insert_median"], args["insert_stdev"]),
             "max_d": max_d,
             "match_score": args["match_score"],
@@ -52,17 +52,10 @@ def to_output(template):
         return template["outstr"]
 
     # Todo make sure all read-pairs have a mapping, otherwise write an unmapped
-    #
-    # paired = False if template["read2_length"] is None else True
     sam = samclips.fixsam(template)
 
     if len(sam) == 0:  # Todo fix unmapped reads
         template["passed"] = 0
-        # print("No alignments")
-        # click.echo(template, err=True)
-        # click.echo("Unmapped read error", err=True)
-        # click.echo(template["inputdata"], err=True)
-        # quit()
         return ""
 
     # if len(sam) == 1:  # Todo deal with these
@@ -71,12 +64,13 @@ def to_output(template):
 
     if any(i[0] == "*" or i[4] == "*" for i in sam):
         template["passed"] = 0
-        # click.echo("Unformatted cigar error", err=True)
-        # click.echo(sam, err=True)
-        # quit()
         return ""
 
-    return "".join(template["name"] + "\t" + "\t".join(i) + "\n" for i in sam)
+    return sam
+
+
+def sam_to_str(template_name, sam):
+    return "".join(template_name + "\t" + "\t".join(i) + "\n" for i in sam)
 
 
 def get_bed_regions(bed):
@@ -258,43 +252,3 @@ def iterate_mappings(args, version):
         yield (rows, args, max_d, last_seen_chrom, fq)
 
     click.echo("Total processed " + str(total), err=True)
-
-
-if __name__ == "__main__":
-    import time
-    import c_io_funcs
-    import c_samflags
-    import pairing
-
-    sam = [[u't', u'97', u'chr22', u'50629342', u'0', u'100M', u'=', u'50630825', u'1539', u'CCTACTTGCCTGATCTGGGAAGAGTAACAGTCTGACGCCTTTAAAGGCCTGAAGGGAACATTCACCATCTGTTCTCTCTCAGGGCTGCTACCTGTGAGGT', u'AADBDDCDAAACBACBA@?ABA=>C?>@@B?B<BB?@A>B??BAB@?AC?@?CBC@>=@@@>>??=A>=@B@><@????B?B<>>;<<><=@:;=??<:=', u'NM:i:1', u'MD:Z:3C96', u'AS:i:96', u'XS:i:96'],
-           [u't', u'353', u'chr22', u'50639946', u'0', u'100M', u'=', u'50630825', u'-9067', u'*', u'*', u'NM:i:1', u'MD:Z:3C96', u'AS:i:96'],
-           [u't', u'145', u'chr22', u'50630825', u'60', u'44S56M', u'=', u'50629342', u'-1539', u'CTCTCCTGGGAGCCTCCGTCAGGGGAACCCAGGAGCCGACGTTCGTCTTAAGAAGTCCCTGCCAGGCGAGCTGTCAGAGCCCCGGCACTGGGAGTGGTGG', u'==;:=@=<<><=<>><>=A>>><>=<==@@==<=>A??A?>=@>?@>@A=A?A???>@AA?@AB?@??@A@A@C@@>BC@BCB@@CBA@AAB@BB?A?AD', u'NM:i:0', u'MD:Z:56', u'AS:i:56', u'XS:i:0', u'SA:Z:chr22,50629781,-,40M60S,60,0;'],
-           [u't', u'2193', u'chr22', u'50629781', u'60', u'40M60H', u'=', u'50629342', u'-479', u'CTCTCCTGGGAGCCTCCGTCAGGGGAACCCAGGAGCCGAC', u'==;:=@=<<><=<>><>=A>>><>=<==@@==<=>A??A?', u'NM:i:0', u'MD:Z:40', u'AS:i:40', u'XS:i:0', u'SA:Z:chr22,50630825,-,44S56M,60,0;']]
-
-    sam = [
-
-[u't', u'97', u'chrUn_KI270442v1', u'25262', u'60', u'76M10D72M', u'chr4', u'49141816', u'0', u'GGAATGTAGTGGAGTGTATTGGAATGGAAGGGAATGGAATGGAATGGAATTGAGTGAAGTTGAGTGGAGTGGAATGGAATGGAATGGAAAGGAATGCAACAGAATGACGTGGAGTGGAATGGAATGGAACGGAACAGAATGGAAGTGA', u'??>?@@=@A?<??==>>>>0>>=>>><??:><?=>?<=>==?>=>?<>>>????<??=>==?===>?;>=>>>>>???@@??>????>>?=;@??<?@><@?@@@=@=75?>@?;>0=??@@@?=?2?A?90AA@B>AB@@?BA><=@', u'NM:i:18', u'MD:Z:76^GAGTGTAAGA18C0A0G4A1G4A20T14T3', u'AS:i:93', u'XS:i:41', u'RG:Z:0'],
-[u't', u'145', u'chr4', u'49141816', u'0', u'30M', u'chrUn_KI270442v1', u'25262', u'0', u'TTCCATTCTGTTCCGTTCCATTCCATTCCA', u'==;=<==;?=>?/7;==0;9=>7?<></>6', u'NM:i:0', u'MD:Z:30', u'AS:i:30', u'XS:i:30', u'RG:Z:0'],
-[u't', u'401', u'chr4', u'49139377', u'0', u'30M', u'chrUn_KI270442v1', u'25262', u'0', u'*', u'*', u'NM:i:0', u'MD:Z:30', u'AS:i:30', u'RG:Z:0'],
-[u't', u'385', u'chrUn_KI270442v1', u'1073', u'0', u'30M', u'=', u'25262', u'24190', u'*', u'*', u'NM:i:0', u'MD:Z:30', u'AS:i:30', u'RG:Z:0'],
-[u't', u'401', u'chr22', u'10724538', u'0', u'30M', u'chrUn_KI270442v1', u'25262', u'0', u'*', u'*', u'NM:i:0', u'MD:Z:30', u'AS:i:30', u'RG:Z:0'],
-[u't', u'99', u'chrUn_KI270442v1', u'25262', u'60', u'50M', u'=', u'25623', u'509', u'GGAATGTAGTGGAGTGTATTGGAATGGAAGGGAATGGAATGGAATGGAAT', u'??>?@@=@A?<??==>>>>0>>=>>><??:><?=>?<=>==?>=>?<>>>', u'NM:i:0', u'MD:Z:50', u'AS:i:50', u'XS:i:33', u'RG:Z:0'],
-[u't', u'147', u'chrUn_KI270442v1', u'25623', u'60', u'148M', u'=', u'25262', u'-509', u'AAATCGAATGTCATCAAATGGAATAAAATGGAATATGGACAAGTGTAGAAGAGTGAATTGGAATACAGTGGAAGGGAATTGGGTGGATTGGAATTTAATGTACTGGAGTGGAGTGGAACGGAGTGGATGGAATGGAATGGGGAGAAAT', u'7><>6AB?>=)????BB?<BA>@<ABBAAA@A@@>A@?><@@=?>@A@>?=@=????=A??@A?>?@>@>?>?==<=<??>>=?>>>??>>>=??=>>?=>==?=>>=>==?<><===4><?<>==>>=<==?>>>?@?=?>@>><>>', u'NM:i:7', u'MD:Z:24C13T0G33C8A19G15A29', u'AS:i:113', u'XS:i:26', u'RG:Z:0']
-]
-    sam_ol = [["\t".join(map(str, i)).split("\t", 4), False] for i in sam]  # Identifier for overlapping region of interest
-
-    args = {"max_insertion": 100, "min_aln": 17, "max_overlap": 100, "ins_cost": 1, "ol_cost": 3, "inter_cost":2,
-            "u": 9, "match_score": 1, "insert_median": 500, "insert_stdev": 50, "bias": 1.15, "paired": "True", "replace_hardclips": False, "fq1": None, "fq2": None}
-
-
-    template = make_template(sam_ol, args, 2000, "chr22", (0, 0))
-
-    # t0 = time.time()
-    # sam_to_array(template)
-    # v0 = time.time() - t0
-    # print template["data"].astype(int)
-    template = {'inputfq': (('chr5.76630308-76630338.5272014-5272109:76630645-76630770.76630645-76630770', 'ACACTTGCAATGAAAAGGGGGGAGCAATTTCCTTTTCTGTAGTTGCTTATCTCTTTTCGATCTGAGGCCGTGAAAATACTAATCACCCAGTAATGGCACAGCACAATTTTAATGACAAGGACTCT', 'EFFGG>FAGFFGFFDGGFGGEEGBGF8GFGGEGGDGEDGAGFECF/DFGEGFGGF$;GG??EDGFGEGFGGGF9EGFDGG<@AFGF?BFBGFGGGGGGGG=1AED>F:EE+=GEGCA6(4>C<GC'), ('chr5.76630308-76630338.5272014-5272109:76630645-76630770.76630645-76630770', 'GTAGACATAGCCCTTTCCTCTTCTCCAGGAAAGCTTTGTAGGATAGAGAAAATAAGAGTACTGGCAATTGAGAAGTTTGTGGTCCAAGAAAAGTAATAGGAACAAGAAAATGACAAAAATTATCA', 'FGGGDEGGGDCGGCAGGF4;GFEGFFGAFGGCGFGGDGF=FGDGEGEBFGDGGE2GGGFG=GGFGE??E@GFGGFCGGGBGGFGGFD;GDE,2>FEA=GGF.,=AG4C?.FGD@F=:;;A4DEF$')), 'paired_end': 1, 'bias': 1.0, 'fq_read2_seq': 0, 'isize': (210.0, 175.0), 'read2_q': 0, 'max_d': 1085.0, 'read2_seq': 0, 'read2_length': 0, 'passed': 0, 'replace_hard': 1, 'read2_reverse': 0, 'inputdata': [(['chr5.76630308-76630338.5272014-5272109:76630645-76630770.76630645-76630770', '99', 'chr5', '5272015', '254\t95=30H\t*\t0\t0\tACACTTGCAATGAAAAGGGGGGAGCAATTTCCTTTTCTGTAGTTGCTTATCTCTTTTCGATCTGAGGCCGTGAAAATACTAATCACCCAGTAATG\tEFFGG>FAGFFGFFDGGFGGEEGBGF8GFGGEGGDGEDGAGFECF/DFGEGFGGF$;GG??EDGFGEGFGGGF9EGFDGG<@AFGF?BFBGFGGG\tNM:i:0\tAS:i:94\tEV:Z:4.6e-46\n'], 0), (['chr5.76630308-76630338.5272014-5272109:76630645-76630770.76630645-76630770', '99', 'chr5', '76630309', '0\t95H30=\t*\t0\t0\tGCACAGCACAATTTTAATGACAAGGACTCT\tGGGGG=1AED>F:EE+=GEGCA6(4>C<GC\tNM:i:0\tAS:i:30\tEV:Z:4.1e-07\n'], 0), (['chr5.76630308-76630338.5272014-5272109:76630645-76630770.76630645-76630770', '147', 'chr5', '76630647', '254\t1H124=\t*\t0\t0\tGATAATTTTTGTCATTTTCTTGTTCCTATTACTTTTCTTGGACCACAAACTTCTCAATTGCCAGTACTCTTATTTTCTCTATCCTACAAAGCTTTCCTGGAGAAGAGGAAAGGGCTATGTCTAC\tFED4A;;:=F@DGF.?C4GA=,.FGG=AEF>2,EDG;DFGGFGGBGGGCFGGFG@E??EGFGG=GFGGG2EGGDGFBEGEGDGF=FGDGGFGCGGFAGFFGEFG;4FGGACGGCDGGGEDGGGF\tNM:i:0\tAS:i:124\tEV:Z:1.2e-65\n'], 0)], 'fq_read1_q': 0, 'fq_read2_q': 0, 'read1_reverse': 0, 'read1_q': 0, 'read1_length': 0, 'name': 'chr5.76630308-76630338.5272014-5272109:76630645-76630770.76630645-76630770', 'fq_read1_seq': 0, 'match_score': 1.0, 'read1_seq': 0, 'last_seen_chrom': 'chr5', 'score_mat': {}, 'pairing_params': (100.0, 17.0, 100.0, 1.0, 3.0, 2.0, 9.0)}
-
-    t0 = time.time()
-    c_io_funcs.sam_to_array(template)
-    v = time.time() - t0

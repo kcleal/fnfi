@@ -75,7 +75,7 @@ def check_for_good_pairing(r1, r2, name, max_d):
     # Check if rnext and pnext set properly
     cdef int p1, p2
     cdef int proper_pair = 0
-    cdef int dn = 250
+    cdef str dn = '250.0'
     if r1[2] == r2[6] and r2[2] == r1[6]:  # Might not generalize for mappers other than bwa mem
 
         p1 = int(r1[2])
@@ -89,17 +89,13 @@ def check_for_good_pairing(r1, r2, name, max_d):
                     proper_pair = 1
 
         if proper_pair == 1:
-            dn = 0
+            dn = '0.0'
+        # Note DP and PS are clipped at 250
+        tags = ["SP:Z:0", "DA:i:100", "DP:Z:250.0", "DN:Z:" + dn, "PS:Z:250.0", "NP:Z:1.0"]
+        r1 += tags
+        r2 += tags
+        return [r1, r2]
 
-        tags = "SP:Z:0\tDA:i:100\tDP:Z:250.0\tDN:Z:{}.\tPS:Z:250.0\tNP:Z:1.0".format(dn)
-        r1.append(tags)
-        r2.append(tags)
-
-        r1 = name + "\t" + "\t".join(r1) + "\n"
-        r2 = name + "\t" + "\t".join(r2) + "\n"
-        pair = r1 + r2
-
-        return str(pair)
     return 0
 
 
@@ -277,20 +273,13 @@ def choose_supplementary(template):
     cdef double read2_max = 0
     cdef int i = 0
 
-    # cdef int read1_alns = 0
-    # cdef int read2_alns = 0
-
     for j in range(len(actual_rows)):
         i = actual_rows[j]
         if d[i, 7] == 1 and d[i, 9] > read1_max:  # Use original alignment score, not biased
             read1_max = d[i, 9]
-            # read1_alns += 1
+
         elif d[i, 7] == 2 and d[i, 9] > read2_max:
             read2_max = d[i, 9]
-            # read2_alns += 1
-
-    # template["splitters"] = [read1_alns > 1, read2_alns > 1]
-    # template['score_mat']["splitter"] = [read1_alns - 1, read2_alns - 1]
 
     ids_to_name = {v: k for k, v in template["chrom_ids"].items()}
 
@@ -315,12 +304,7 @@ def choose_supplementary(template):
         else:
             template['score_mat'][loc] += [False, 0]
     template['locs'] = locs
-    # if template["name"] == "HISEQ2500-10:541:CATW5ANXX:6:2110:12123:87089":
-    #     click.echo((read1_max, read2_max), err=True)
-    #     click.echo(len(d), err=True)
-    #     click.echo(actual_rows, err=True)
-    #     click.echo(template["score_mat"], err=True)
-    #     quit()
+
 
 def score_alignments(template, ri, np.ndarray[np.int64_t, ndim=1]  template_rows, np.ndarray[DTYPE_t, ndim=2] template_data):
     # Scans all alignments for each query, slow for long reads but ok for short read data
@@ -367,10 +351,6 @@ def score_alignments(template, ri, np.ndarray[np.int64_t, ndim=1]  template_rows
         if xs == -1:
             xs = ori_aln_score
         template["score_mat"][template["locs"][idx]][1] = xs
-
-        # if template["name"] == "HISEQ2500-10:539:CAV68ANXX:7:2104:14398:32264":
-        #     click.echo(template["score_mat"], err=True)
-        #     click.echo(template["data"].astype(int), err=True)
         idx += 1
 
 
@@ -384,5 +364,3 @@ def add_scores(template, np.ndarray[np.float_t, ndim=1] rows, float path_score, 
     template['score_mat']["dis_to_normal"] = dis_to_normal
     template['score_mat']["path_score"] = path_score
     template['score_mat']['normal_pairings'] = norm_pairings
-
-

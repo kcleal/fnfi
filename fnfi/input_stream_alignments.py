@@ -7,18 +7,13 @@ import click
 from . import data_io, pairing, c_io_funcs
 import time
 import datetime
-
-# Todo Find out if reads are being dropped
+import pickle
+import numpy as np
 
 
 def process_template(read_template):
     paired = c_io_funcs.sam_to_array(read_template)
-
-    # if read_template["name"] == "HISEQ2500-10:539:CAV68ANXX:7:2211:10642:81376":
-    #     click.echo("prc", err=True)
-
     if paired:
-        # data_io.to_output(read_template)
         return
 
     res = pairing.process(read_template)
@@ -28,7 +23,6 @@ def process_template(read_template):
         c_io_funcs.add_scores(read_template, *res)
         c_io_funcs.choose_supplementary(read_template)
         c_io_funcs.score_alignments(read_template, read_template["ri"], read_template['rows'], read_template['data'])
-        # data_io.to_output(read_template)
 
 
 def worker(queue, out_queue):
@@ -46,7 +40,6 @@ def worker(queue, out_queue):
                 read_template = data_io.make_template(*data_tuple)
                 process_template(read_template)
                 if read_template['passed']:
-                    # out_queue.put(read_template["outstr"])
                     outstring = data_io.to_output(read_template)
                     if outstring:
                         big_string += outstring
@@ -58,6 +51,53 @@ def worker(queue, out_queue):
             # else:
             #     click.echo("WARNING: no output from job.", err=True)
         queue.task_done()
+
+
+def load_mq_model(pth):
+    if pth:
+        click.echo("Loading MapQ recalibrator {}".format(pth), err=True)
+        return pickle.load(open(pth, "rb"))
+    else:
+        click.echo("No MapQ recalibration", err=True)
+        return None
+
+
+def phred_from_model(p):
+    if p == 1:
+        return 30
+    P = 1 - p
+    v = int(round(-10 * np.log10(P)))
+    return v if v <= 30 else 30
+
+
+def predict_mapq(xtest, model):
+    return list(map(phred_from_model, model.predict_proba(xtest)[:, 1]))
+
+
+def write_records(sam, mq_model, outsam):
+    # Model features are "AS", "DA", "DN", "DP", "NP", "PS", "XS", "kind_key", "mapq"
+    if not mq_model:
+        for name, record in sam:
+            outsam.write(data_io.sam_to_str(name, record))
+
+    else:  # Todo multiprocessing here, cython for array preparation etc
+        map_qs = []
+        t0 = time.time()
+        for name, alns in sam:
+            for a in alns:
+                mapq = a[3]
+                t = {i[:2]: i[5:] for i in a[10:]}
+                kind_key = 0 if int(a[0]) & 2048 else 1
+                f = [t["AS"], t["DA"], t["DN"], t["DP"], t["NP"], t["PS"], t["XS"] if "XS" in t else 0, kind_key, mapq]
+                map_qs.append(f)
+
+        mqs = iter(predict_mapq(np.array(map_qs).astype(float), mq_model))
+
+        for name, alns in sam:
+            for i in range(len(alns)):
+                alns[i][3] = str(next(mqs))
+            outsam.write(data_io.sam_to_str(name, alns))
+        click.echo(time.time() - t0, err=True)
 
 
 def process_reads(args):
@@ -78,7 +118,15 @@ def process_reads(args):
         click.echo("Writing alignments to {}".format(args["output"]), err=True)
         outsam = open(args["output"], "w")
 
+    map_q_recal_model = load_mq_model(args["mq"])
+
     count = 0
+
+    click.echo("fnfi {} process".format(args["procs"]), err=True)
+
+    itr = data_io.iterate_mappings(args, version)
+    header_string = next(itr)
+    outsam.write(header_string)
 
     # Use multiprocessing:
     # https://stackoverflow.com/questions/17241663/filling-a-queue-and-managing-multiprocessing-in-python
@@ -131,25 +179,30 @@ def process_reads(args):
 
     # Use single process for debugging
     else:
-        click.echo("fnfi single process", err=True)
 
         itr = data_io.iterate_mappings(args, version)
         header_string = next(itr)
         outsam.write(header_string)
 
+        sam_temp = []
         for data_tuple in itr:
 
             count += 1
             temp = data_io.make_template(*data_tuple)
 
             process_template(temp)
-            # if temp["name"] == "HISEQ2500-10:539:CAV68ANXX:7:2211:10642:81376":
-            #     click.echo("pc2", err=True)
 
             if temp['passed']:
-                outstr = data_io.to_output(temp)
-                if outstr:
-                    outsam.write(outstr)
+                sam = data_io.to_output(temp)
+                if sam:
+                    sam_temp.append((temp["name"], sam))
+
+                if len(sam_temp) > 50000:
+                    write_records(sam_temp, map_q_recal_model, outsam)
+                    sam_temp = []
+
+        if len(sam_temp) > 0:
+            write_records(sam_temp, map_q_recal_model, outsam)
 
     if args["output"] != "-" or args["output"] is not None:
         outsam.close()
