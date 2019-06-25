@@ -123,8 +123,6 @@ def process_reads(args):
     click.echo("fnfi {} process".format(args["procs"]), err=True)
 
     itr = data_io.iterate_mappings(args, version)
-    header_string = next(itr)
-    outsam.write(header_string)
 
     # Use multiprocessing:
     # https://stackoverflow.com/questions/17241663/filling-a-queue-and-managing-multiprocessing-in-python
@@ -157,7 +155,6 @@ def process_reads(args):
         writer.start()
 
         job = []
-        itr = data_io.iterate_mappings(args, version)
         header_string = next(itr)
         out_queue.put(header_string)
 
@@ -178,7 +175,6 @@ def process_reads(args):
     # Use single process for debugging
     else:
 
-        itr = data_io.iterate_mappings(args, version)
         header_string = next(itr)
         outsam.write(header_string)
 
