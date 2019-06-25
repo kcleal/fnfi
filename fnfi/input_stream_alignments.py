@@ -82,7 +82,6 @@ def write_records(sam, mq_model, outsam):
 
     else:  # Todo multiprocessing here, cython for array preparation etc
         map_qs = []
-        t0 = time.time()
         for name, alns in sam:
             for a in alns:
                 mapq = a[3]
@@ -97,7 +96,6 @@ def write_records(sam, mq_model, outsam):
             for i in range(len(alns)):
                 alns[i][3] = str(next(mqs))
             outsam.write(data_io.sam_to_str(name, alns))
-        click.echo(time.time() - t0, err=True)
 
 
 def process_reads(args):
