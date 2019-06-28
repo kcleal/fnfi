@@ -48,6 +48,7 @@ def make_template(rows, args, max_d, last_seen_chrom, fq):
 
 def to_output(template):
 
+
     if "outstr" in template:
         return template["outstr"]
 

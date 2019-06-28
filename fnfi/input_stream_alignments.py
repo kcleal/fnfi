@@ -4,7 +4,7 @@ import sys
 import pkg_resources
 from threading import Thread
 import click
-from . import data_io, pairing, c_io_funcs
+from fnfi import data_io, pairing, c_io_funcs
 import time
 import datetime
 import pickle
@@ -12,6 +12,10 @@ import numpy as np
 
 
 def process_template(read_template):
+    # if read_template["name"] == "HISEQ1:11:H8GV6ADXX:1:2113:3986:26065":
+    #     click.echo(read_template, err=True)
+    #     quit()
+
     paired = c_io_funcs.sam_to_array(read_template)
     if paired:
         return
@@ -204,3 +208,26 @@ def process_reads(args):
     click.echo("fnfi align {} completed in {} h:m:s".format(args["sam"],
                                                             str(datetime.timedelta(seconds=int(time.time() - t0)))),
                err=True)
+
+
+if __name__ == "__main__":
+
+    t = {'isize': (210.0, 175.0), 'max_d': 910.0, 'match_score': 1.0, 'pairing_params': (150.0, 17.0, 150.0, 0.1, 1.0, 2.0, 9.0), 'paired_end': 1, 'inputdata': [(['HISEQ1:11:H8GV6ADXX:1:2113:3986:26065', '73', 'chr1', '1597858', "60\t148M\t=\t1597858\t0\tGCCGCACACGCTGCCTGGGCCAATGCCACCCAGGCCAGGAGAGGGTTTGGGGCCAGACACCAGCCCATACCCAAGGGTCCCAGGGGATGTGGGGAGAAGGGGAATCCACCTTTTCCTTCCCTCCCACCTCCCAAATAACACACAGACA\t.5.5@A=A>4?9<>==76.=;=<=;<=<<>>>;;;:@=%(9(3371:=;.<-5=6;=;995<<?=?A>>;<??1;7&354=@,&&/<>=<-&.*?=>;6&57><?=@A<?@>><=A;@;4???'7A=5@?;<AA?>>B@@7A:@5=<@\tNM:i:0\tMD:Z:148\tAS:i:148\tXS:i:0\tRG:Z:0\n"], 0), (['HISEQ1:11:H8GV6ADXX:1:2113:3986:26065', '133', 'chr1', '1597858', "0\t*\t=\t1597858\t0\tCAACTGGCAAATCTCCTCTTCCAGCTCCCCATGTAGGAAGCGTCAACAATTACTTGTACCCGTCGAGTCCGGGGCAATTTTCCCCCAACACCAGGATACCCTATCGCATCAGGGGAAATTCCTCCCGCTTGAAGCCCAGCCCCTTTCC\t+@)>?><0))&37=*(,)4)*)@<'=*'>=+2*-(*'/4*&$/)3&:+&:)2*-*+.)19*&/*6)12+*%%%%',1+'''41&4&<1<>):6+%(+))&&.*,6&(<497,&&&.&=<(+5.6<6&&&&-)(,(''7,1<'&/))<:\tAS:i:0\tXS:i:0\tRG:Z:0\n"], 0)], 'bias': 1.0, 'read1_length': 0, 'read2_length': 0, 'score_mat': {}, 'passed': 0, 'name': 'HISEQ1:11:H8GV6ADXX:1:2113:3986:26065', 'last_seen_chrom': 'chr7', 'inputfq': (None, None), 'read1_seq': 0, 'read2_seq': 0, 'read1_q': 0, 'read2_q': 0, 'read1_reverse': 0, 'read2_reverse': 0, 'replace_hard': 0, 'fq_read1_seq': 0, 'fq_read2_seq': 0, 'fq_read1_q': 0, 'fq_read2_q': 0}
+
+    # print(t.keys())
+    process_template(t)
+    print(t["read1_seq"])
+    print(t["read2_seq"])
+    print(t["read1_length"])
+    print(t["read2_length"])
+    print(t["rows"])
+    print(t["score_mat"])
+    sam = data_io.to_output(t)
+
+    for item in sam:
+        print(item)
+    quit()
+    print()
+
+    for item in t["inputdata"]:
+        print(item)

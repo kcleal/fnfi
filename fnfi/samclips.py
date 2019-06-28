@@ -127,6 +127,10 @@ def set_mate_flag(a, b, max_d, read1_rev, read2_rev):
     aflag = c_samflags.set_bit(aflag, 1, 0)
     bflag = c_samflags.set_bit(bflag, 1, 0)
 
+    # Turn off supplementary pair flag
+    aflag = c_samflags.set_bit(aflag, 11, 0)
+    bflag = c_samflags.set_bit(bflag, 11, 0)
+
     # Set paired
     aflag = c_samflags.set_bit(aflag, 0, 1)
     bflag = c_samflags.set_bit(bflag, 0, 1)
@@ -262,7 +266,6 @@ def add_sequence_back(item, reverse_me, template):
     c = re.split(r'(\d+)', item[4])[1:]  # Drop leading empty string
     start = 0
 
-    cigar_length = sum([int(c[i]) for i in range(0, len(c), 2) if c[i + 1] not in "DH"])
     if flag & 64:  # Read1
         seq = template["read1_seq"]
     elif flag & 128:
@@ -270,8 +273,17 @@ def add_sequence_back(item, reverse_me, template):
     else:
         seq = template["read1_seq"]  # Unpaired
 
+    cigar_length = sum([int(c[i]) for i in range(0, len(c), 2) if c[i + 1] not in "DH"])
+
     if len(seq) != cigar_length:
-        return item  # Cigar length is not set properly by mapper
+
+        # Sometimes current read had a hard-clip in cigar, but the primary read was not soft clipped
+        cigar_length = sum([int(c[i]) for i in range(0, len(c), 2) if c[i + 1] not in "D"])
+        if len(seq) != cigar_length:
+            return item  # Cigar length is not set properly by mapper
+        # If this is true, reset the Hard-clips with Soft-clips
+        c = ["S" if i == "H" else i for i in c]
+        item[4] = item[4].replace("H", "S")
 
     # Occasionally the H is missing, means its impossible to add sequence back in
 
