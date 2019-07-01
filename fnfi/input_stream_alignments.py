@@ -12,11 +12,14 @@ import numpy as np
 
 
 def process_template(read_template):
+    # click.echo(read_template, err=True)
+    # quit()
     # if read_template["name"] == "HISEQ1:11:H8GV6ADXX:1:2113:3986:26065":
     #     click.echo(read_template, err=True)
     #     quit()
 
     paired = c_io_funcs.sam_to_array(read_template)
+
     if paired:
         return
 
@@ -79,7 +82,7 @@ def predict_mapq(xtest, model):
 
 
 def write_records(sam, mq_model, outsam):
-    # Model features are "AS", "DA", "DN", "DP", "NP", "PS", "XS", "kind_key", "mapq"
+    # Model features are "AS", "DA", "DN", "DP", "NP", "PS", "XS", "kind_key", "mapq", "DS
     if not mq_model:
         for name, record in sam:
             outsam.write(data_io.sam_to_str(name, record))
@@ -87,18 +90,26 @@ def write_records(sam, mq_model, outsam):
     else:  # Todo multiprocessing here, cython for array preparation etc
         map_qs = []
         for name, alns in sam:
+
             for a in alns:
                 mapq = a[3]
+
                 t = {i[:2]: i[5:] for i in a[10:]}
                 kind_key = 0 if int(a[0]) & 2048 else 1
-                f = [t["AS"], t["DA"], t["DN"], t["DP"], t["NP"], t["PS"], t["XS"] if "XS" in t else 0, kind_key, mapq]
+                f = [t["AS"], t["DA"], t["DN"], t["DP"], t["NP"], t["PS"], t["XS"] if "XS" in t else 0, kind_key, mapq, t["DS"]]
                 map_qs.append(f)
 
         mqs = iter(predict_mapq(np.array(map_qs).astype(float), mq_model))
 
         for name, alns in sam:
             for i in range(len(alns)):
-                alns[i][3] = str(next(mqs))
+                flag = int(alns[i][0])
+                mq = str(next(mqs))
+                if flag & 4:
+                    alns[i][3] = "0"
+                else:
+                    alns[i][3] = mq
+
             outsam.write(data_io.sam_to_str(name, alns))
 
 
@@ -212,21 +223,26 @@ def process_reads(args):
 
 if __name__ == "__main__":
 
-    t = {'isize': (210.0, 175.0), 'max_d': 910.0, 'match_score': 1.0, 'pairing_params': (150.0, 17.0, 150.0, 0.1, 1.0, 2.0, 9.0), 'paired_end': 1, 'inputdata': [(['HISEQ1:11:H8GV6ADXX:1:2113:3986:26065', '73', 'chr1', '1597858', "60\t148M\t=\t1597858\t0\tGCCGCACACGCTGCCTGGGCCAATGCCACCCAGGCCAGGAGAGGGTTTGGGGCCAGACACCAGCCCATACCCAAGGGTCCCAGGGGATGTGGGGAGAAGGGGAATCCACCTTTTCCTTCCCTCCCACCTCCCAAATAACACACAGACA\t.5.5@A=A>4?9<>==76.=;=<=;<=<<>>>;;;:@=%(9(3371:=;.<-5=6;=;995<<?=?A>>;<??1;7&354=@,&&/<>=<-&.*?=>;6&57><?=@A<?@>><=A;@;4???'7A=5@?;<AA?>>B@@7A:@5=<@\tNM:i:0\tMD:Z:148\tAS:i:148\tXS:i:0\tRG:Z:0\n"], 0), (['HISEQ1:11:H8GV6ADXX:1:2113:3986:26065', '133', 'chr1', '1597858', "0\t*\t=\t1597858\t0\tCAACTGGCAAATCTCCTCTTCCAGCTCCCCATGTAGGAAGCGTCAACAATTACTTGTACCCGTCGAGTCCGGGGCAATTTTCCCCCAACACCAGGATACCCTATCGCATCAGGGGAAATTCCTCCCGCTTGAAGCCCAGCCCCTTTCC\t+@)>?><0))&37=*(,)4)*)@<'=*'>=+2*-(*'/4*&$/)3&:+&:)2*-*+.)19*&/*6)12+*%%%%',1+'''41&4&<1<>):6+%(+))&&.*,6&(<497,&&&.&=<(+5.6<6&&&&-)(,(''7,1<'&/))<:\tAS:i:0\tXS:i:0\tRG:Z:0\n"], 0)], 'bias': 1.0, 'read1_length': 0, 'read2_length': 0, 'score_mat': {}, 'passed': 0, 'name': 'HISEQ1:11:H8GV6ADXX:1:2113:3986:26065', 'last_seen_chrom': 'chr7', 'inputfq': (None, None), 'read1_seq': 0, 'read2_seq': 0, 'read1_q': 0, 'read2_q': 0, 'read1_reverse': 0, 'read2_reverse': 0, 'replace_hard': 0, 'fq_read1_seq': 0, 'fq_read2_seq': 0, 'fq_read1_q': 0, 'fq_read2_q': 0}
+    t = {'isize': (210.0, 175.0), 'max_d': 910.0, 'match_score': 1.0, 'pairing_params': (150.0, 17.0, 150.0, 0.1, 1.0, 2.0, 9.0), 'paired_end': 1, 'inputdata': [(['chr16:53948053-53948078+chr16:46380752-46380852_chr16:46380794-46380919', '99', 'chr16', '46380753', "60\t25S100M\t=\t46380795\t167\tGAACTCGCCATTGTAAAGTAAGAGAATTCCATTCAATTCCATTTGATGATGTTTCTCTTGTATTCCATTGGATAATTCCTTTCAGTTCCCTACGATGATTATTCTTTCGAGTCAATTCGATGATC\tGGEGGD;GFD5F?;2GGGGGG-FFGFEG9GFFC;FGGGFGC;GGGG5GDGDGGFFGFF2FG@FGGFFGA;GGGEGFGG-BGGF@GFGGGA@DFGGFGFFG@8D3FDGGDFGGD@1?0GGGGFA'$\tNM:i:1\tMD:Z:99T0\tAS:i:99\tXS:i:79\n"], 0), (['chr16:53948053-53948078+chr16:46380752-46380852_chr16:46380794-46380919', '147', 'chr16', '46380795', '60\t125M\t=\t46380753\t-167\tTTGGATAATTCCTTTCAGTTCCCTACGCTGATTATTCTTTCGAGTCAATTCGATGATTCTATTCCATTCCCTTCGATGATGATTCCATTTCACTCCATTTGATGATTCCATTCGACTCAATTTGG\tD=;4=E5GD015DGGBDGFFBFF;FEA9FGFGGGFGGCGF>E>FGFAD?FFCFGEDGGBGGGGF@GG<GGGGGGGGFFFFEEECCBGGG7=GGF2?FFGBAFGGGGGGFGGGGGGGGFGGGGGGF\tNM:i:1\tMD:Z:27A97\tAS:i:120\tXS:i:100\n'], 0)], 'bias': 1.0, 'read1_length': 0, 'read2_length': 0, 'score_mat': {}, 'passed': 0, 'name': 'chr16:53948053-53948078+chr16:46380752-46380852_chr16:46380794-46380919', 'last_seen_chrom': 'chr7', 'inputfq': (None, None), 'read1_seq': 0, 'read2_seq': 0, 'read1_q': 0, 'read2_q': 0, 'read1_reverse': 0, 'read2_reverse': 0, 'replace_hard': 0, 'fq_read1_seq': 0, 'fq_read2_seq': 0, 'fq_read1_q': 0, 'fq_read2_q': 0}
 
     # print(t.keys())
+
     process_template(t)
+    print(t.keys())
+    print(t["passed"])
+    print(t["outstr"])
     print(t["read1_seq"])
     print(t["read2_seq"])
     print(t["read1_length"])
     print(t["read2_length"])
-    print(t["rows"])
     print(t["score_mat"])
+    # print(t["rows"])
+
     sam = data_io.to_output(t)
 
     for item in sam:
         print(item)
-    quit()
+
     print()
 
     for item in t["inputdata"]:

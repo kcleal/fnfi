@@ -188,7 +188,7 @@ def scan_regions(inputbam, include, max_cov, tree):
             total_dropped += 200
             reads_dropped += d
 
-    click.echo("Skipping {} kb of reference, read-coverage >= {} bp - {} reads".format(
+    click.echo("Skipping {} kb of reference, read-coverage >= {} x - {} reads".format(
         round(total_dropped / 1e3, 3), max_cov, reads_dropped), err=True)
 
     merged_targets = merge_intervals(intervals, srt=True)

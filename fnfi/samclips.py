@@ -4,8 +4,8 @@ Utils to generate proper sam output and flag information
 from __future__ import absolute_import
 import re
 import click
-from . import c_io_funcs
-from . import c_samflags
+from fnfi import c_io_funcs
+from fnfi import c_samflags
 
 
 def echo(*arg):
@@ -457,13 +457,17 @@ def fixsam(template):
             aln_info_0, aln_info_1 = t[key]
 
         xs = int(aln_info_1)
-
+        if l[0] & 2048:
+            os = "DS:i:1"  # refers to "originally supplementary"
+        else:
+            os = "DS:i:0"
         l += [
               "DA:i:" + str(xs),
               "DP:Z:" + str(round(t["dis_to_next_path"], 0)),
               "DN:Z:" + str(round(t["dis_to_normal"], 2)),
               "PS:Z:" + str(round(t["path_score"], 2)),
               "NP:Z:" + str(round(t["normal_pairings"], 1)),
+              os
               ]
 
         if aln_info_0:

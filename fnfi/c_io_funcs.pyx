@@ -91,9 +91,10 @@ def check_for_good_pairing(r1, r2, name, max_d):
         if proper_pair == 1:
             dn = '0.0'
         # Note DP and PS are clipped at 250
-        tags = ["SP:Z:0", "DA:i:100", "DP:Z:250.0", "DN:Z:" + dn, "PS:Z:250.0", "NP:Z:1.0"]
+        tags = ["SP:Z:0", "DA:i:100", "DP:Z:250.0", "DN:Z:" + dn, "PS:Z:250.0", "NP:Z:1.0", "DS:i:0"]
         r1 += tags
         r2 += tags
+
         return [r1, r2]
 
     return 0
@@ -101,13 +102,13 @@ def check_for_good_pairing(r1, r2, name, max_d):
 
 def sam_to_array(template):
     # Expect read1 and read2 alignments to be concatenated, not mixed together
-    data, overlaps = zip(*template["inputdata"])
-
+    data, overlaps = list(zip(*template["inputdata"]))
     template["inputdata"] = [[i[1], i[2], i[3]] + i[4].strip().split("\t") for i in data]
 
     # If only one alignment for read1 and read2, no need to try pairing, just send sam to output
     if len(data) == 2:
         pair_str = check_for_good_pairing(template["inputdata"][0], template["inputdata"][1], template["name"], template["max_d"])
+
         if pair_str:
             template["passed"] = 1
             template["outstr"] = pair_str
