@@ -44,7 +44,7 @@ def merge_intervals(intervals, srt=True, pad=0):
 def scan_whole_genome(inputbam, max_cov, tree):
     depth_d = {}
     approx_read_length = []
-    for a in inputbam.fetch():
+    for a in inputbam.fetch(until_eof=True):
 
         # fails quality checks, PCR duplicate, unmapped, mate unmapped, not primary, proper pair, supplementary
         if a.flag & 3854:

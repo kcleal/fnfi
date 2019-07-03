@@ -226,6 +226,8 @@ def run_command(ctx, **kwargs):
 @click.option('--search', help=".bed file, limit search to regions", default=None, type=click.Path(exists=True))
 @click.option('--exclude', help=".bed file, do not search/call SVs within regions. Overrides include/search",
               default=None, type=click.Path(exists=True))
+@click.option('--bam-only', help="Output bam instead of fastq", default="False", type=click.Choice(["True", "False"]),
+              show_default=True)
 @click.option('--dest', help="Destination folder to use/create for saving results. Defaults to current directory",
               default=None, type=click.Path())
 @click.pass_context

@@ -152,7 +152,12 @@ def process(args):
     data_io.mk_dest(args["dest"])
 
     insert_median, insert_stdev, read_length, out_name = get_reads(args)
-    convert_to_fastq(out_name)
+
+    if args["bam_only"] is None:
+        convert_to_fastq(out_name)
+    else:
+        call("samtools index {}.bam".format(out_name), shell=True)
+
     click.echo("Collected reads in {} h:m:s".format(str(datetime.timedelta(seconds=int(time.time() - t0)))), err=True)
 
     return {"insert_median": insert_median,
