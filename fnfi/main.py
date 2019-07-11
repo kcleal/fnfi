@@ -249,9 +249,9 @@ def find_reads(ctx, **kwargs):
               type=click.Path(), show_default=True, required=False)
 @click.option("--replace-hardclips",  help="Replace hard-clips with soft-clips when possible",
               default=defaults["replace_hardclips"], type=click.Choice(["True", "False"]), show_default=True)
-@click.option("--fq1",  help="Fastq reads 1, used to add soft-clips to all hard-clipped read 1 alignments",
+@click.option("--fq1",  help="Fastq/fasta reads 1, used to add soft-clips to all hard-clipped read 1 alignments",
               default=defaults["fq1"], type=click.Path(), show_default=True)
-@click.option("--fq2",  help="Fastq reads 2, used to add soft-clips to all hard-clipped read 2 alignments",
+@click.option("--fq2",  help="Fastq/fasta reads 2, used to add soft-clips to all hard-clipped read 2 alignments",
               default=defaults["fq2"], type=click.Path(), show_default=True)
 @click.option("--max-insertion", help="Maximum insertion within read", default=defaults["max_insertion"], type=float,
               show_default=True)

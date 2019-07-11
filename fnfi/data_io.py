@@ -166,15 +166,25 @@ def sam_itr(args):
 
 def fq_reader(args):
     # Iterate the fq files, send back a generator to use, generate only the read name, seq and qual lines
+    # If > is at the start, iterate fasta instead
     def readfq(f):
         for l1 in f:
             l1 = l1.strip()
             last2 = l1[-2:]
+            if l1[0] == "@":
+                fastq = True
+            else:
+                fastq = False
             if last2 == "/2" or last2 == "/1":
                 l1 = l1[1:-2]  # Strip trailing /1 or /2 and leading @
+            else:
+                l1 = l1[1:]
             l2 = next(f).strip()
-            next(f)  # Skip "+"
-            l4 = next(f).strip()
+            if fastq:
+                next(f)  # Skip "+"
+                l4 = next(f).strip()
+            else:
+                l4 = "1" * len(l2)
             yield l1, l2, l4
 
     if args["fq1"] is None:
