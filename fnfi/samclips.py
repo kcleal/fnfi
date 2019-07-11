@@ -268,22 +268,26 @@ def add_sequence_back(item, reverse_me, template):
 
     if flag & 64:  # Read1
         seq = template["read1_seq"]
+        q = template["read1_q"]
     elif flag & 128:
         seq = template["read2_seq"]
+        q = template["read2_q"]
     else:
         seq = template["read1_seq"]  # Unpaired
+        q = template["read1_q"]
 
     cigar_length = sum([int(c[i]) for i in range(0, len(c), 2) if c[i + 1] not in "DH"])
 
     if len(seq) != cigar_length:
-
-        # Sometimes current read had a hard-clip in cigar, but the primary read was not soft clipped
-        cigar_length = sum([int(c[i]) for i in range(0, len(c), 2) if c[i + 1] not in "D"])
-        if len(seq) != cigar_length:
-            return item  # Cigar length is not set properly by mapper
-        # If this is true, reset the Hard-clips with Soft-clips
-        c = ["S" if i == "H" else i for i in c]
-        item[4] = item[4].replace("H", "S")
+        if template["replace_hard"] and q != "*":
+            # Sometimes current read had a hard-clip in cigar, but the primary read was not soft clipped
+            cigar_length = sum([int(c[i]) for i in range(0, len(c), 2) if c[i + 1] not in "D"])
+            echo(c, cigar_length, len(seq), len(template["read1_q"]), template['name'], template["read1_q"])
+            if len(seq) != cigar_length:
+                return item  # Cigar length is not set properly by mapper
+            # If this is true, reset the Hard-clips with Soft-clips
+            item[4] = item[4].replace("H", "S")
+        return item
 
     # Occasionally the H is missing, means its impossible to add sequence back in
 

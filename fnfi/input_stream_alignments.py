@@ -70,8 +70,11 @@ def load_mq_model(pth):
 
 
 def phred_from_model(p):
-    if p == 1:
-        return 30
+    # if p == 1:
+    #     return 30
+    if p < 0.5:
+        return 0
+    return 40
     P = 1 - p
     v = int(round(-10 * np.log10(P)))
     return v if v <= 30 else 30
@@ -104,11 +107,14 @@ def write_records(sam, mq_model, outsam):
         for name, alns in sam:
             for i in range(len(alns)):
                 flag = int(alns[i][0])
-                mq = str(next(mqs))
-                if flag & 4:
-                    alns[i][3] = "0"
-                else:
-                    alns[i][3] = mq
+                # cigar = alns[i][4]
+                mq = next(mqs)
+
+                # if flag & 2048:
+                #     if flag & 4:
+                #         alns[i][3] = "0"
+                #     else:  # Only correct 0 mappings?
+                alns[i][3] = str(mq)
 
             outsam.write(data_io.sam_to_str(name, alns))
 
